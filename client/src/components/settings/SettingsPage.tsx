@@ -77,7 +77,7 @@ export function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="text-sm text-muted-foreground space-y-2">
             <p>
-              Cramkit uses your own Anthropic API key for the AI features
+              cramkit uses your own Anthropic API key for the AI features
               (answering free-form quiz questions and the "Why?" chatbot).
               You only pay for what you use.
             </p>
@@ -146,8 +146,8 @@ export function SettingsPage() {
 
           <div className="text-xs text-muted-foreground border-t pt-3">
             Your key is stored in your browser's local storage and synced to
-            your Cramkit account (visible only to you). It's sent directly to
-            Anthropic from your browser — Cramkit's servers never see it.
+            your cramkit account (visible only to you). It's sent directly to
+            Anthropic from your browser — cramkit's servers never see it.
           </div>
         </CardContent>
       </Card>
@@ -159,7 +159,7 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            Cramkit uses{' '}
+            cramkit uses{' '}
             <span className="font-mono text-xs text-foreground">
               claude-sonnet-4-6
             </span>{' '}

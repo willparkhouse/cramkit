@@ -164,7 +164,7 @@ export function ModulesPage() {
           <CardHeader>
             <CardTitle className="text-sm font-medium">Don't see your module?</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Request it here. Cramkit's admin manually adds approved modules.
+              Request it here. cramkit's admin manually adds approved modules.
               Vote for existing requests to bump them up the queue.
             </p>
           </CardHeader>

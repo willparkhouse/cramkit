@@ -1,12 +1,13 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Brain, BarChart3, GraduationCap, Settings } from 'lucide-react'
+import { LayoutDashboard, Brain, Search, BarChart3, GraduationCap, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Home' },
-  { to: '/modules', icon: GraduationCap, label: 'Modules' },
   { to: '/quiz', icon: Brain, label: 'Quiz' },
+  { to: '/search', icon: Search, label: 'Search' },
   { to: '/progress', icon: BarChart3, label: 'Progress' },
+  { to: '/modules', icon: GraduationCap, label: 'Modules' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 

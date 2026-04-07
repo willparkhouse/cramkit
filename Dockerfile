@@ -1,5 +1,5 @@
 # ============================================================================
-# Cramkit — single-container image
+# cramkit — single-container image
 # Builds the React client, then serves it via the Hono Node server
 # alongside the Anthropic ingestion proxy.
 # ============================================================================

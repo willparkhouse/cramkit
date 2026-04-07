@@ -1,5 +1,5 @@
 -- ============================================================================
--- Cramkit schema
+-- cramkit schema
 -- Multi-user with row-level security. Open signups (no email restriction).
 -- ============================================================================
 

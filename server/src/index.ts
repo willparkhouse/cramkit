@@ -49,5 +49,5 @@ if (existsSync(staticDir)) {
 
 const port = parseInt(process.env.PORT || '3001')
 
-console.log(`Cramkit server running on http://localhost:${port}`)
+console.log(`cramkit server running on http://localhost:${port}`)
 serve({ fetch: app.fetch, port })

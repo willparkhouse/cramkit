@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================================
- * Cramkit design tokens
+ * cramkit design tokens
  *
  * Warm, restrained palette built around a coral accent that matches the
  * brand mark. Light mode uses a slightly warm cream rather than pure white;

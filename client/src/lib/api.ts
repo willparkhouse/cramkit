@@ -181,11 +181,13 @@ export async function searchSources(
   query: string,
   module?: string,
   sourceTypes?: string[],
+  matchCount?: number,
 ): Promise<SourceChunk[]> {
   const { chunks } = await authedPost<{ chunks: SourceChunk[] }>('/api/source-search', {
     query,
     module,
     source_types: sourceTypes,
+    match_count: matchCount,
   })
   return chunks
 }

@@ -93,7 +93,7 @@ export function QuizPage() {
               <>
                 <p className="text-muted-foreground max-w-md">
                   No questions are available for your enrolled modules yet.
-                  Cramkit's admin needs to add notes for these modules.
+                  cramkit's admin needs to add notes for these modules.
                 </p>
                 <Button asChild variant="outline">
                   <Link to="/modules">

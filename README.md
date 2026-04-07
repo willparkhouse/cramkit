@@ -1,4 +1,4 @@
-# Cramkit
+# cramkit
 
 > **cramkit** /ˈkramˌkɪt/ *noun.* a self-contained survival pack of past papers, half-remembered lecture notes, and AI tutors, deployed in the panic-stricken weeks before an exam.
 
@@ -9,7 +9,7 @@ Live at **[cramkit.app](https://cramkit.app)**.
 
 ## What it does
 
-Cramkit turns your lecture notes into a personalised revision loop:
+cramkit turns your lecture notes into a personalised revision loop:
 
 - **Ingest** lecture notes (admin only) — Claude extracts ~15–30 concepts per file, tags them by week and module, and generates a bank of MCQ + free-form questions calibrated to past-paper difficulty
 - **Quiz** with priority-weighted concept selection — weakest topics first, untested topics, mistakes you've made, or spaced-repetition due
@@ -48,8 +48,8 @@ Cramkit turns your lecture notes into a personalised revision loop:
 - **Backend** — Hono on Node, single Docker container. Serves the built static client AND a small set of admin-only API routes (concept extraction, question generation, lecture transcript embedding + RAG retrieval). All admin routes validate the Supabase JWT and check the caller's email against the admin allow-list.
 - **Database** — Supabase (managed Postgres). Tables: `exams`, `concepts`, `questions`, `knowledge`, `revision_slots`, `module_enrollments`, `module_requests`, `module_request_votes`, `lectures`, `lecture_chunks`. Row-level security enforces per-user knowledge isolation; concepts and questions are global course material that any authenticated user can read.
 - **AI calls** — split into two paths:
-  - **Realtime** (BYOK) — quiz evaluation and "Why?" chat run directly from the browser using each user's own Anthropic key. Cramkit's servers never see the key. Powered by `claude-sonnet-4-6`.
-  - **Batch** (admin only) — concept extraction, question generation, and transcript embedding run on the server using Cramkit's key. Same model.
+  - **Realtime** (BYOK) — quiz evaluation and "Why?" chat run directly from the browser using each user's own Anthropic key. cramkit's servers never see the key. Powered by `claude-sonnet-4-6`.
+  - **Batch** (admin only) — concept extraction, question generation, and transcript embedding run on the server using cramkit's key. Same model.
 - **Auth** — Supabase magic-link via Resend SMTP, sending from `noreply@cramkit.app`. No passwords. (University of Birmingham mail servers currently filter these so we recommend personal email addresses.)
 - **Reverse proxy** — Caddy on a Debian VPS handles TLS via Let's Encrypt and routes `cramkit.app` to the cramkit container over a dedicated Docker network.
 

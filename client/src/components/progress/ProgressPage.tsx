@@ -166,55 +166,58 @@ export function ProgressPage() {
         </Button>
       </div>
 
-      {/* Week groups */}
-      {weekGroups.map((group) => {
-        const key = `${group.week}-${group.lecture}`
-        const expanded = expandedWeeks.has(key)
-        const avgScore = group.concepts.reduce((sum, cs) => sum + cs.effectiveScore, 0) / group.concepts.length
-        const testedCount = group.concepts.filter((cs) => cs.totalAttempts > 0).length
+      {/* Week groups — tight stack so all weeks fit comfortably on one screen */}
+      <div className="space-y-1.5">
+        {weekGroups.map((group) => {
+          const key = `${group.week}-${group.lecture}`
+          const expanded = expandedWeeks.has(key)
+          const avgScore = group.concepts.reduce((sum, cs) => sum + cs.effectiveScore, 0) / group.concepts.length
+          const testedCount = group.concepts.filter((cs) => cs.totalAttempts > 0).length
 
-        return (
-          <Card key={key}>
-            <CardHeader
-              className="py-3 cursor-pointer"
-              onClick={() => toggleWeek(key)}
-            >
-              <div className="flex items-center gap-3">
-                {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          return (
+            <div key={key} className="rounded-xl bg-card overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleWeek(key)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/30 transition-colors"
+              >
+                {expanded
+                  ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                 <div className="flex-1 min-w-0">
-                  <CardTitle className="text-sm font-medium">
+                  <div className="text-sm font-medium leading-snug">
                     {group.week > 0 ? `Week ${group.week}: ` : ''}{group.lecture}
-                  </CardTitle>
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
                     {group.concepts.length} concepts · {testedCount} tested · {Math.round(avgScore * 100)}% avg
                   </div>
                 </div>
-                <div className="w-24">
-                  <Progress value={avgScore * 100} className="h-2" />
+                <div className="w-24 shrink-0">
+                  <Progress value={avgScore * 100} className="h-1.5" />
                 </div>
-              </div>
-            </CardHeader>
+              </button>
 
-            {expanded && (
-              <CardContent className="pt-0 space-y-1">
-                {group.concepts
-                  .sort((a, b) => a.effectiveScore - b.effectiveScore)
-                  .map((cs) => (
-                    <ConceptRow
-                      key={cs.concept.id}
-                      cs={cs}
-                      expanded={expandedConcept === cs.concept.id}
-                      onToggle={() => setExpandedConcept(
-                        expandedConcept === cs.concept.id ? null : cs.concept.id
-                      )}
-                      questions={questions}
-                    />
-                  ))}
-              </CardContent>
-            )}
-          </Card>
-        )
-      })}
+              {expanded && (
+                <div className="px-4 pb-3 pt-0 space-y-1">
+                  {group.concepts
+                    .sort((a, b) => a.effectiveScore - b.effectiveScore)
+                    .map((cs) => (
+                      <ConceptRow
+                        key={cs.concept.id}
+                        cs={cs}
+                        expanded={expandedConcept === cs.concept.id}
+                        onToggle={() => setExpandedConcept(
+                          expandedConcept === cs.concept.id ? null : cs.concept.id
+                        )}
+                        questions={questions}
+                      />
+                    ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -239,9 +242,9 @@ function ConceptRow({ cs, expanded, onToggle, questions }: {
   const scoreColour = scorePercent >= 80 ? 'text-green-600' : scorePercent >= 40 ? 'text-yellow-600' : scorePercent > 0 ? 'text-red-500' : 'text-muted-foreground'
 
   return (
-    <div className="border rounded-md">
+    <div className="rounded-md bg-muted/30 hover:bg-muted/60 transition-colors">
       <div
-        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50"
+        className="flex items-center gap-3 px-3 py-2 cursor-pointer"
         onClick={onToggle}
       >
         {cs.totalAttempts === 0 ? (
@@ -268,7 +271,7 @@ function ConceptRow({ cs, expanded, onToggle, questions }: {
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t space-y-2">
+        <div className="px-3 pb-3 pt-1 space-y-2">
           <div className="text-xs text-muted-foreground">{cs.concept.description}</div>
 
           {cs.concept.key_facts.length > 0 && (

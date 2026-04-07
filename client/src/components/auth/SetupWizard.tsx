@@ -65,11 +65,11 @@ export function SetupWizard() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                {reason === 'first-time' ? 'Welcome to Cramkit' : 'Set up AI features'}
+                {reason === 'first-time' ? 'Welcome to cramkit' : 'Set up AI features'}
               </DialogTitle>
               <DialogDescription>
                 {reason === 'first-time'
-                  ? 'Cramkit uses AI to evaluate your answers and explain mistakes. Pick how you\'d like to power those features.'
+                  ? 'cramkit uses AI to evaluate your answers and explain mistakes. Pick how you\'d like to power those features.'
                   : 'You need an Anthropic API key to use this feature. Pick an option below.'}
               </DialogDescription>
             </DialogHeader>
@@ -101,7 +101,7 @@ export function SetupWizard() {
                   <CreditCard className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium">Cramkit subscription</span>
+                      <span className="font-medium">cramkit subscription</span>
                       <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ export function SetupWizard() {
               </DialogTitle>
               <DialogDescription>
                 Your key is stored in your browser and synced to your account. It is
-                sent directly to Anthropic — Cramkit never sees it.
+                sent directly to Anthropic — cramkit never sees it.
               </DialogDescription>
             </DialogHeader>
 

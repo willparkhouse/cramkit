@@ -18,7 +18,7 @@ export function Logo({ className, height }: LogoProps) {
   return (
     <img
       src={src}
-      alt="Cramkit"
+      alt="cramkit"
       style={height ? { height } : undefined}
       className={cn('h-auto w-auto select-none', className)}
       draggable={false}

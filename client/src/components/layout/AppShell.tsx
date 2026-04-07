@@ -3,7 +3,7 @@ import {
   LayoutDashboard,
   Upload,
   Brain,
-  MessageSquare,
+  Search,
   Calendar,
   BarChart3,
   Settings,
@@ -25,10 +25,10 @@ import { useAuth } from '@/lib/auth'
 
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
-  { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
   { to: '/quiz', icon: Brain, label: 'Quiz', adminOnly: false },
+  { to: '/search', icon: Search, label: 'Search materials', adminOnly: false },
   { to: '/progress', icon: BarChart3, label: 'Progress', adminOnly: false },
-  { to: '/chat', icon: MessageSquare, label: 'Learn', adminOnly: false },
+  { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
   { to: '/ingest', icon: Upload, label: 'Ingest Notes', adminOnly: true },
   { to: '/schedule', icon: Calendar, label: 'Schedule', adminOnly: true },
   { to: '/settings', icon: Settings, label: 'Settings', adminOnly: false },

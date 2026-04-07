@@ -9,8 +9,7 @@ import { SetupWizard } from '@/components/auth/SetupWizard'
 import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { IngestionPage } from '@/components/ingestion/IngestionPage'
 import { QuizPage } from '@/components/quiz/QuizPage'
-import { ChatPage } from '@/components/chat/ChatPage'
-import { LectureChatPage } from '@/components/chat/LectureChatPage'
+import { MaterialSearchPage } from '@/components/search/MaterialSearchPage'
 import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
@@ -48,8 +47,7 @@ function ProtectedApp() {
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/progress" element={<ProgressPage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/lectures" element={<LectureChatPage />} />
+          <Route path="/search" element={<MaterialSearchPage />} />
           <Route path="/settings" element={<SettingsPage />} />
 
           {/* Admin-only routes */}
