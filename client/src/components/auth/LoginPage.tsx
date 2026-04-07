@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { supabase, isValidEmail, isBhamEmail } from '@/lib/supabase'
 import { Logo } from '@/components/layout/Logo'
-import { Loader2, Mail, CheckCircle, GraduationCap, ArrowRight } from 'lucide-react'
+import { Loader2, Mail, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react'
 
 export function LoginPage() {
   const [email, setEmail] = useState('')
@@ -72,7 +72,7 @@ export function LoginPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@bham.ac.uk"
+                    placeholder="you@gmail.com"
                     required
                     disabled={loading}
                     autoFocus
@@ -81,11 +81,13 @@ export function LoginPage() {
                 </div>
 
                 {showBhamWarning && (
-                  <div className="text-xs text-muted-foreground flex gap-2 px-1">
-                    <GraduationCap className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-600 dark:text-amber-500 flex gap-2 px-1">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     <span>
-                      Cramkit is built for Birmingham students — using your bham.ac.uk
-                      email gets your account verified.
+                      Heads up — University of Birmingham mail servers currently
+                      filter our login emails, so your bham.ac.uk address probably
+                      won't receive the link. Use a personal email (Gmail, Outlook, etc.)
+                      instead.
                     </span>
                   </div>
                 )}
