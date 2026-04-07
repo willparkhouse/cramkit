@@ -20,8 +20,12 @@ import type {
   ModuleRequestVote,
 } from '@/types'
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-const SONNET_MODEL = 'claude-sonnet-4-5'
+// Use Sonnet 4.6 for everything realtime — eval quality on technical
+// material is meaningfully better than Haiku, and the cost delta on a
+// ~200-token eval is negligible.
+const SONNET_MODEL = 'claude-sonnet-4-6'
+const EVAL_MODEL = SONNET_MODEL
+const CHAT_MODEL = SONNET_MODEL
 
 // ============================================================================
 // Server-side ingestion (uses platform Anthropic key)
@@ -81,7 +85,7 @@ export { MissingApiKeyError }
 export async function evaluateAnswer(req: EvaluateAnswerRequest): Promise<EvaluateAnswerResponse> {
   const client = getAnthropicClient()
   const response = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: EVAL_MODEL,
     max_tokens: 200,
     system: `You are evaluating a student's exam answer. Be generous with partial credit.
 Return ONLY a JSON object: { "correct": boolean, "partial_credit": boolean, "feedback": "one sentence" }`,
@@ -119,7 +123,7 @@ Context from course notes:
 ${conceptContext}`
 
   const stream = await client.messages.stream({
-    model: SONNET_MODEL,
+    model: CHAT_MODEL,
     max_tokens: 2048,
     system: systemPrompt,
     messages: messages.map((m) => ({
@@ -185,7 +189,7 @@ Sources:
 ${sources}`
 
   const stream = await client.messages.stream({
-    model: SONNET_MODEL,
+    model: CHAT_MODEL,
     max_tokens: 2048,
     system: systemPrompt,
     messages: messages.map((m) => ({

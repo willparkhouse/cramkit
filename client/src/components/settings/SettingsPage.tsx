@@ -8,7 +8,6 @@ import { CheckCircle, AlertCircle, Loader2, ExternalLink, LogOut, Eye, EyeOff } 
 export function SettingsPage() {
   const { user, signOut } = useAuth()
   const [keyInput, setKeyInput] = useState('')
-  const [hasKey, setHasKey] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -18,7 +17,6 @@ export function SettingsPage() {
     const existing = getApiKey()
     if (existing) {
       setKeyInput(existing)
-      setHasKey(true)
     }
   }, [])
 
@@ -29,7 +27,6 @@ export function SettingsPage() {
     if (!trimmed) {
       setApiKey(null)
       await syncApiKeyToProfile(null)
-      setHasKey(false)
       setSavedAt(Date.now())
       return
     }
@@ -43,7 +40,6 @@ export function SettingsPage() {
     try {
       setApiKey(trimmed)
       await syncApiKeyToProfile(trimmed)
-      setHasKey(true)
       setSavedAt(Date.now())
     } catch (err) {
       setError((err as Error).message)
@@ -52,12 +48,8 @@ export function SettingsPage() {
     }
   }
 
-  const masked = keyInput.length > 12
-    ? `${keyInput.slice(0, 8)}${'•'.repeat(keyInput.length - 12)}${keyInput.slice(-4)}`
-    : keyInput
-
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-xl space-y-5">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
       {/* Account */}
@@ -85,8 +77,9 @@ export function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="text-sm text-muted-foreground space-y-2">
             <p>
-              Cramkit uses your own Anthropic API key for realtime tasks (answering quizzes, the "Why?" chatbot).
-              This means you only pay for what <em>you</em> use.
+              Cramkit uses your own Anthropic API key for the AI features
+              (answering free-form quiz questions and the "Why?" chatbot).
+              You only pay for what you use.
             </p>
             <p>
               Get a key at{' '}
@@ -107,27 +100,31 @@ export function SettingsPage() {
               API Key
             </label>
             <div className="flex gap-2">
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <input
                   id="api-key"
                   type={showKey ? 'text' : 'password'}
-                  value={showKey ? keyInput : (hasKey && keyInput === getApiKey() ? masked : keyInput)}
+                  value={keyInput}
                   onChange={(e) => {
                     setKeyInput(e.target.value)
                     setSavedAt(null)
+                    setError(null)
                   }}
                   placeholder="sk-ant-api03-..."
-                  className="w-full border rounded-md px-3 py-2 text-sm bg-background font-mono"
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="w-full border rounded-md pl-3 pr-9 py-2 text-sm bg-background font-mono"
                 />
                 <button
                   type="button"
                   onClick={() => setShowKey((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                  aria-label={showKey ? 'Hide key' : 'Show key'}
                 >
                   {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={handleSave} disabled={saving} className="shrink-0">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
               </Button>
             </div>
@@ -135,40 +132,43 @@ export function SettingsPage() {
 
           {error && (
             <div className="text-sm text-destructive flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
+              <AlertCircle className="h-4 w-4 shrink-0" />
               {error}
             </div>
           )}
 
           {savedAt && !error && (
             <div className="text-sm text-green-600 flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4 shrink-0" />
               Saved
             </div>
           )}
 
           <div className="text-xs text-muted-foreground border-t pt-3">
-            Your key is stored in your browser's local storage and synced to your Cramkit account
-            (visible only to you). It is sent directly to Anthropic from your browser — Cramkit's
-            servers never see it.
+            Your key is stored in your browser's local storage and synced to
+            your Cramkit account (visible only to you). It's sent directly to
+            Anthropic from your browser — Cramkit's servers never see it.
           </div>
         </CardContent>
       </Card>
 
-      {/* Pricing info */}
+      {/* Models */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Costs</CardTitle>
+          <CardTitle className="text-sm font-medium">Models</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            Realtime tasks use <span className="font-mono text-xs">claude-haiku-4-5</span> (eval) and{' '}
-            <span className="font-mono text-xs">claude-sonnet-4-5</span> (chat). Typical session of 50 questions
-            costs roughly $0.05–0.20 depending on how many free-form questions you answer.
+            Cramkit uses{' '}
+            <span className="font-mono text-xs text-foreground">
+              claude-sonnet-4-6
+            </span>{' '}
+            for free-form answer evaluation and the "Why?" chatbot.
           </p>
           <p>
-            Note ingestion (extracting concepts and generating questions) is paid for by Cramkit and runs
-            server-side using a shared key.
+            A typical session of 50 questions costs roughly $0.10–0.30
+            depending on how many free-form questions you answer and how
+            much you chat with the explainer.
           </p>
         </CardContent>
       </Card>

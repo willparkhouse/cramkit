@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, ExternalLink } from 'lucide-react'
+import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, ExternalLink, SlidersHorizontal, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import type { QuizFilters, QuizMode } from '@/services/quiz'
@@ -38,6 +38,7 @@ export function QuizPage() {
     week: null,
     mode: initialMode,
   })
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   // Get available weeks for the selected module (or all)
   const availableWeeks = useMemo(() => {
@@ -126,95 +127,124 @@ export function QuizPage() {
     { mode: 'spaced', label: 'Spaced Repetition' },
   ]
 
+  // Build a one-line summary of the active filter state for the collapsed view
+  const activeModuleName = filters.moduleId
+    ? MODULE_SHORT_NAMES[exams.find((e) => e.id === filters.moduleId)?.name || ''] || 'Module'
+    : 'All modules'
+  const activeMode = modes.find((m) => m.mode === filters.mode)?.label || 'Weakest'
+  const filterSummary = [
+    activeModuleName,
+    filters.week !== null ? `W${filters.week}` : null,
+    activeMode,
+    mcqOnly ? 'Offline' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      {/* Header */}
-      <div className="flex items-end justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Quiz</h1>
-        <div className="text-sm text-muted-foreground tabular-nums">
-          {session.correctCount}/{session.questionsAnswered} correct
-        </div>
-      </div>
+    <div className="mx-auto max-w-3xl space-y-4">
+      {/* Compact filter bar — collapsed by default */}
+      <div className="rounded-lg border border-border bg-card/40">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((o) => !o)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-accent/30 transition-colors rounded-lg"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground truncate">{filterSummary}</span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {session.correctCount}/{session.questionsAnswered}
+            </span>
+            <ChevronDown
+              className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
+            />
+          </div>
+        </button>
 
-      {/* Filters — grouped into labelled rows */}
-      <div className="space-y-4 rounded-xl border border-border bg-card/50 p-4">
-        <FilterGroup label="Module">
-          <FilterPill
-            active={filters.moduleId === null}
-            onClick={() => updateFilter({ ...filters, moduleId: null, week: null })}
-          >
-            All
-          </FilterPill>
-          {exams.map((exam) => {
-            const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
-            const colour = MODULE_COLOURS[exam.name] || '#888'
-            const active = filters.moduleId === exam.id
-            return (
+        {filtersOpen && (
+          <div className="px-4 pb-3 pt-1 space-y-2.5 border-t border-border">
+            <FilterGroup label="Module">
               <FilterPill
-                key={exam.id}
-                active={active}
-                accentColour={active ? colour : undefined}
-                onClick={() =>
-                  updateFilter({ ...filters, moduleId: active ? null : exam.id, week: null })
-                }
+                active={filters.moduleId === null}
+                onClick={() => updateFilter({ ...filters, moduleId: null, week: null })}
               >
-                {shortName}
+                All
               </FilterPill>
-            )
-          })}
-        </FilterGroup>
+              {exams.map((exam) => {
+                const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+                const colour = MODULE_COLOURS[exam.name] || '#888'
+                const active = filters.moduleId === exam.id
+                return (
+                  <FilterPill
+                    key={exam.id}
+                    active={active}
+                    accentColour={active ? colour : undefined}
+                    onClick={() =>
+                      updateFilter({ ...filters, moduleId: active ? null : exam.id, week: null })
+                    }
+                  >
+                    {shortName}
+                  </FilterPill>
+                )
+              })}
+            </FilterGroup>
 
-        {availableWeeks.length > 0 && (
-          <FilterGroup label="Week">
-            <FilterPill
-              active={filters.week === null}
-              onClick={() => updateFilter({ ...filters, week: null })}
-            >
-              All
-            </FilterPill>
-            {availableWeeks.map(({ week }) => {
-              const active = filters.week === week
-              return (
+            {availableWeeks.length > 0 && (
+              <FilterGroup label="Week">
                 <FilterPill
-                  key={week}
-                  active={active}
-                  onClick={() => updateFilter({ ...filters, week: active ? null : week })}
+                  active={filters.week === null}
+                  onClick={() => updateFilter({ ...filters, week: null })}
                 >
-                  W{week}
+                  All
                 </FilterPill>
-              )
-            })}
-          </FilterGroup>
+                {availableWeeks.map(({ week }) => {
+                  const active = filters.week === week
+                  return (
+                    <FilterPill
+                      key={week}
+                      active={active}
+                      onClick={() => updateFilter({ ...filters, week: active ? null : week })}
+                    >
+                      W{week}
+                    </FilterPill>
+                  )
+                })}
+              </FilterGroup>
+            )}
+
+            <FilterGroup label="Mode">
+              {modes.map(({ mode, label }) => (
+                <FilterPill
+                  key={mode}
+                  active={filters.mode === mode}
+                  onClick={() => updateFilter({ ...filters, mode })}
+                >
+                  {label}
+                </FilterPill>
+              ))}
+            </FilterGroup>
+
+            <FilterGroup label="Type">
+              <FilterPill
+                active={!mcqOnly}
+                onClick={() => updateFilter({ ...filters, questionType: 'all' })}
+                icon={<Wifi className="h-3 w-3" />}
+              >
+                All
+              </FilterPill>
+              <FilterPill
+                active={mcqOnly}
+                onClick={() => updateFilter({ ...filters, questionType: 'mcq' })}
+                icon={<WifiOff className="h-3 w-3" />}
+              >
+                Offline
+              </FilterPill>
+            </FilterGroup>
+          </div>
         )}
-
-        <FilterGroup label="Mode">
-          {modes.map(({ mode, label }) => (
-            <FilterPill
-              key={mode}
-              active={filters.mode === mode}
-              onClick={() => updateFilter({ ...filters, mode })}
-            >
-              {label}
-            </FilterPill>
-          ))}
-        </FilterGroup>
-
-        <FilterGroup label="Question type">
-          <FilterPill
-            active={!mcqOnly}
-            onClick={() => updateFilter({ ...filters, questionType: 'all' })}
-            icon={<Wifi className="h-3 w-3" />}
-          >
-            All types
-          </FilterPill>
-          <FilterPill
-            active={mcqOnly}
-            onClick={() => updateFilter({ ...filters, questionType: 'mcq' })}
-            icon={<WifiOff className="h-3 w-3" />}
-          >
-            Offline only
-          </FilterPill>
-        </FilterGroup>
       </div>
 
       {/* Question (interactive or read-only with feedback) */}
@@ -262,11 +292,11 @@ export function QuizPage() {
 
 function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground pt-1.5">
+    <div className="flex items-center gap-3">
+      <div className="w-14 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className="flex-1 flex flex-wrap gap-1.5">{children}</div>
+      <div className="flex-1 flex flex-wrap gap-1">{children}</div>
     </div>
   )
 }
@@ -291,8 +321,8 @@ function FilterPill({
       style={active && accentColour ? { backgroundColor: accentColour, borderColor: accentColour, color: 'white' } : undefined}
       className={
         active
-          ? 'inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium border border-primary bg-primary text-primary-foreground transition-colors'
-          : 'inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium border border-border bg-transparent text-foreground/80 hover:bg-accent hover:text-foreground transition-colors'
+          ? 'inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-medium border border-primary bg-primary text-primary-foreground transition-colors'
+          : 'inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-medium border border-border bg-transparent text-foreground/80 hover:bg-accent hover:text-foreground transition-colors'
       }
     >
       {icon}
@@ -422,30 +452,42 @@ function ReviewAndFeedback({
 
   const resultLabel = isCorrect ? 'Correct!' : isPartial ? 'Partial Credit' : 'Incorrect'
 
+  const accentBorder = isCorrect
+    ? 'border-l-green-500'
+    : isPartial
+      ? 'border-l-yellow-500'
+      : 'border-l-destructive'
+
   return (
-    <div className="space-y-4">
-      {/* Question with answers highlighted */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2 mb-2">
-            <Badge variant="secondary">{concept.name}</Badge>
-            <Badge variant="outline">
-              {question.type === 'mcq' ? 'Multiple Choice' : 'Free Form'}
+    <div className="space-y-3">
+      {/* Question + answers + result + actions in one card */}
+      <Card className={`border-l-4 ${accentBorder}`}>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Badge variant="secondary" className="text-[10px]">{concept.name}</Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {question.type === 'mcq' ? 'MCQ' : 'Free form'}
             </Badge>
+            {feedback && (
+              <div className="flex items-center gap-1.5 ml-auto text-xs">
+                {icon}
+                <span className="font-medium">{resultLabel}</span>
+              </div>
+            )}
           </div>
           <CardTitle className="text-base font-medium leading-relaxed">
             {question.question}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3 pb-4">
           {question.type === 'mcq' && question.options && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {question.options.map((option, i) => {
                 const isCorrectOption = option.trim().toLowerCase() === question.correct_answer.trim().toLowerCase()
                 const isUserPick = userAnswer != null && option.trim().toLowerCase() === userAnswer.trim().toLowerCase()
                 const wrongPick = isUserPick && !isCorrectOption
 
-                let className = 'rounded-md px-3 py-2 text-sm border '
+                let className = 'rounded-md px-3 py-1.5 text-sm border '
                 if (isCorrectOption) {
                   className += 'border-green-300 bg-green-50 text-green-800 font-medium dark:border-green-800 dark:bg-green-950 dark:text-green-300'
                 } else if (wrongPick) {
@@ -466,9 +508,9 @@ function ReviewAndFeedback({
             </div>
           )}
           {question.type === 'free_form' && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {userAnswer && (
-                <div className={`rounded-md px-3 py-2 text-sm border ${
+                <div className={`rounded-md px-3 py-1.5 text-sm border ${
                   isCorrect
                     ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950'
                     : 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950'
@@ -476,61 +518,43 @@ function ReviewAndFeedback({
                   <span className="font-medium">Your answer: </span>{userAnswer}
                 </div>
               )}
-              <div className="rounded-md px-3 py-2 text-sm border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
-                <span className="font-medium text-green-800 dark:text-green-300">Correct answer: </span>
+              <div className="rounded-md px-3 py-1.5 text-sm border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
+                <span className="font-medium text-green-800 dark:text-green-300">Correct: </span>
                 <span className="text-green-700 dark:text-green-400">{question.correct_answer}</span>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Feedback card */}
-      {feedback && (
-        <Card className={
-          isCorrect
-            ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950'
-            : isPartial
-              ? 'border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950'
-              : 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950'
-        }>
-          <CardContent className="py-4 space-y-3">
-            <div className="flex items-center gap-2">
-              {icon}
-              <span className="font-medium">{resultLabel}</span>
+          {/* Feedback line + explanation, inline */}
+          {feedback && (
+            <div className="text-sm text-muted-foreground border-t pt-3">
+              {feedback.feedback}
+              {question.explanation && (
+                <span className="block mt-1 text-xs">{question.explanation}</span>
+              )}
             </div>
-            <p className="text-sm">{feedback.feedback}</p>
-            {question.explanation && (
-              <div className="text-sm text-muted-foreground border-t pt-2 mt-2">
-                <span className="font-medium">Explanation:</span> {question.explanation}
-              </div>
-            )}
+          )}
 
-            {/* Help me understand */}
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-1">
             {!isCorrect && !showChat && (
-              <Button variant="outline" size="sm" onClick={startChat}>
-                {ragModuleSlug ? <Video className="mr-2 h-4 w-4" /> : <HelpCircle className="mr-2 h-4 w-4" />}
-                {ragModuleSlug ? 'Help me understand (with lecture moments)' : 'Why?'}
+              <Button variant="outline" size="sm" onClick={startChat} className="shrink-0">
+                {ragModuleSlug ? <Video className="mr-1.5 h-3.5 w-3.5" /> : <HelpCircle className="mr-1.5 h-3.5 w-3.5" />}
+                Why?
               </Button>
             )}
-
-            <Button onClick={onNext} className="w-full">
-              Next Question
-              <ArrowRight className="ml-2 h-4 w-4" />
+            <Button onClick={onNext} size="sm" className="flex-1">
+              Next question
+              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
             </Button>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Help panel: lecture moments + chat */}
       {showChat && (
         <Card>
-          <CardContent className="py-4 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <HelpCircle className="h-4 w-4" />
-              Understanding this question
-            </div>
-
+          <CardContent className="py-3 space-y-3">
             {/* Lecture moments */}
             {retrieving && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -539,32 +563,32 @@ function ReviewAndFeedback({
               </div>
             )}
             {chunks.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <Video className="h-3 w-3" />
                   Lecture moments
                 </div>
-                <div className="space-y-1.5">
+                <div className="grid gap-1.5 grid-cols-1 sm:grid-cols-3">
                   {chunks.slice(0, 3).map((c) => (
                     <a
                       key={c.chunk_id}
                       href={c.deep_link}
                       target="_blank"
                       rel="noreferrer"
-                      className="block rounded-md border border-border bg-background px-3 py-2 text-xs hover:bg-muted transition-colors"
+                      className="block rounded-md border border-border bg-background px-2.5 py-2 text-[11px] hover:bg-muted transition-colors"
                     >
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="font-medium">{c.lecture_code} @ {c.timestamp_label}</span>
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <span className="font-medium truncate">{c.lecture_code} @ {c.timestamp_label}</span>
                         <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                       </div>
-                      <p className="text-muted-foreground line-clamp-2">{c.chunk_text}</p>
+                      <p className="text-muted-foreground line-clamp-2 text-[10px]">{c.chunk_text}</p>
                     </a>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="space-y-3 max-h-80 overflow-y-auto">
+            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
               {/* Hide the auto-sent opener (always the first user message) — its framing is for Claude, not the user. */}
               {chatMessages.slice(chatMessages[0]?.role === 'user' ? 1 : 0).map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>

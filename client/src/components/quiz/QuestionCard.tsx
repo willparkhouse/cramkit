@@ -23,19 +23,19 @@ export function QuestionCard({
 }: QuestionCardProps) {
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2 mb-2">
-          <Badge variant="secondary">{concept.name}</Badge>
-          <Badge variant="outline">
-            {question.type === 'mcq' ? 'Multiple Choice' : 'Free Form'}
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <Badge variant="secondary" className="text-[10px]">{concept.name}</Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {question.type === 'mcq' ? 'MCQ' : 'Free form'}
           </Badge>
-          <Badge variant="outline">Difficulty: {question.difficulty}</Badge>
+          <Badge variant="outline" className="text-[10px]">Difficulty {question.difficulty}</Badge>
         </div>
         <CardTitle className="text-base font-medium leading-relaxed">
           {question.question}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pb-4">
         {question.type === 'mcq' && question.options ? (
           <MCQOptions
             options={question.options}
