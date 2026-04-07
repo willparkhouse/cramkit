@@ -23,3 +23,9 @@ export const MODULE_SHORT_NAMES: Record<string, string> = {
   'Evolutionary Computation': 'EC',
   'Security of Real World Systems': 'SRWS',
 }
+
+// Maps a module's display name to the slug used by the lecture transcript
+// RAG (lectures.module column). Modules without transcripts are absent.
+export const MODULE_RAG_SLUGS: Record<string, string> = {
+  'Neural Computation': 'neuralcomp',
+}

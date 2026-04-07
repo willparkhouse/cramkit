@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { supabase, isValidEmail, isBhamEmail } from '@/lib/supabase'
-import { Loader2, Mail, CheckCircle, GraduationCap } from 'lucide-react'
+import { Logo } from '@/components/layout/Logo'
+import { Loader2, Mail, CheckCircle, GraduationCap, ArrowRight } from 'lucide-react'
 
 export function LoginPage() {
   const [email, setEmail] = useState('')
@@ -23,9 +23,7 @@ export function LoginPage() {
     setLoading(true)
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: trimmed,
-      options: {
-        emailRedirectTo: window.location.origin,
-      },
+      options: { emailRedirectTo: window.location.origin },
     })
     setLoading(false)
 
@@ -39,93 +37,124 @@ export function LoginPage() {
   const showBhamWarning = email && isValidEmail(email.trim()) && !isBhamEmail(email.trim())
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold">
-              ck
-            </div>
-            <CardTitle className="text-2xl">Cramkit</CardTitle>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            AI-powered exam revision built for Birmingham students
-          </p>
-        </CardHeader>
-        <CardContent>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Top bar — minimal, just the logo */}
+      <header className="flex items-center justify-between px-6 py-5 md:px-10">
+        <Logo height={28} />
+      </header>
+
+      {/* Hero + form */}
+      <main className="flex-1 flex items-center justify-center px-6 py-8">
+        <div className="w-full max-w-md space-y-8">
           {sent ? (
-            <div className="space-y-4 text-center py-4">
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
-              <div>
-                <p className="font-medium">Check your inbox</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  We sent a login link to <span className="font-medium">{email}</span>
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Don't see it? Check your spam folder. University mail servers
-                sometimes filter these — if nothing arrives within a minute, try
-                a personal email (Gmail, Outlook).
-              </p>
-              <Button variant="outline" size="sm" onClick={() => { setSent(false); setEmail('') }}>
-                Use a different email
-              </Button>
-            </div>
+            <SentState email={email} onReset={() => { setSent(false); setEmail('') }} />
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="email" className="text-sm font-medium block mb-1.5">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@bham.ac.uk"
-                  required
-                  disabled={loading}
-                  className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  We'll send you a passwordless login link.
+            <>
+              {/* Hero copy */}
+              <div className="space-y-3 text-center">
+                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
+                  Cram smarter.
+                </h1>
+                <p className="text-base text-muted-foreground max-w-sm mx-auto">
+                  AI-powered exam revision built for University of Birmingham students.
+                  Pick your modules. Practise. Track your weakest spots.
                 </p>
               </div>
 
-              {showBhamWarning && (
-                <div className="text-xs text-muted-foreground bg-muted border rounded-md px-3 py-2 flex gap-2">
-                  <GraduationCap className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>
-                    Cramkit is built for Birmingham students. Anyone can sign up,
-                    but if you're a Birmingham student we recommend using your
-                    bham.ac.uk email so your account gets verified.
-                  </span>
+              {/* Form */}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="email" className="text-xs font-medium text-muted-foreground uppercase tracking-wider block mb-2">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@bham.ac.uk"
+                    required
+                    disabled={loading}
+                    autoFocus
+                    className="w-full bg-background border border-border rounded-lg px-4 py-3 text-base focus:border-primary focus:outline-none transition-colors"
+                  />
                 </div>
-              )}
 
-              {error && (
-                <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
-                  {error}
-                </div>
-              )}
-
-              <Button type="submit" className="w-full" disabled={loading || !email.trim()}>
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending link...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="mr-2 h-4 w-4" />
-                    Send login link
-                  </>
+                {showBhamWarning && (
+                  <div className="text-xs text-muted-foreground flex gap-2 px-1">
+                    <GraduationCap className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Cramkit is built for Birmingham students — using your bham.ac.uk
+                      email gets your account verified.
+                    </span>
+                  </div>
                 )}
-              </Button>
-            </form>
+
+                {error && (
+                  <div className="text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full h-12 text-base font-medium gap-2"
+                  disabled={loading || !email.trim()}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending link…
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="h-4 w-4" />
+                      Send login link
+                      <ArrowRight className="h-4 w-4 ml-auto" />
+                    </>
+                  )}
+                </Button>
+              </form>
+
+              <p className="text-xs text-muted-foreground text-center">
+                No password. We'll email you a one-tap login link.
+              </p>
+            </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="px-6 py-6 text-center">
+        <p className="text-xs text-muted-foreground">
+          Built for May 2026 exams · BYOK Anthropic for AI features
+        </p>
+      </footer>
+    </div>
+  )
+}
+
+function SentState({ email, onReset }: { email: string; onReset: () => void }) {
+  return (
+    <div className="space-y-6 text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
+        <CheckCircle className="h-7 w-7 text-primary" />
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-2xl font-bold tracking-tight">Check your inbox</h2>
+        <p className="text-sm text-muted-foreground">
+          We sent a login link to <span className="font-medium text-foreground">{email}</span>
+        </p>
+      </div>
+      <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+        Don't see it? Check your spam folder. Some university mail servers
+        filter these — if nothing arrives within a minute, try a personal
+        email address (Gmail, Outlook).
+      </p>
+      <Button variant="outline" size="sm" onClick={onReset}>
+        Use a different email
+      </Button>
     </div>
   )
 }

@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
-import { streamChat, MissingApiKeyError } from '@/lib/api'
+import { MODULE_SHORT_NAMES, MODULE_COLOURS, MODULE_RAG_SLUGS } from '@/lib/constants'
+import { streamChat, streamLectureChat, searchLectures, MissingApiKeyError, type LectureChunk } from '@/lib/api'
+import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
 import { QuestionCard } from './QuestionCard'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send } from 'lucide-react'
+import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import type { QuizFilters, QuizMode } from '@/services/quiz'
@@ -264,6 +265,7 @@ export function QuizPage() {
           feedback={session.feedback}
           userAnswer={session.userAnswer}
           onNext={() => session.nextQuestion()}
+          ragModuleSlug={resolveRagSlug(session.concept, allExams)}
         />
       )}
 
@@ -283,34 +285,53 @@ export function QuizPage() {
   )
 }
 
-// Shows the question read-only with your answer + correct answer highlighted, feedback, and a "Why?" button
+// Resolve which lecture-RAG module slug a concept belongs to (or null if none).
+function resolveRagSlug(concept: Concept, exams: { id: string; name: string }[]): string | null {
+  for (const id of concept.module_ids) {
+    const exam = exams.find((e) => e.id === id)
+    if (exam && MODULE_RAG_SLUGS[exam.name]) return MODULE_RAG_SLUGS[exam.name]
+  }
+  return null
+}
+
+// Shows the question read-only with your answer + correct answer highlighted, feedback, and a "Help me understand" panel
 function ReviewAndFeedback({
   question,
   concept,
   feedback,
   userAnswer,
   onNext,
+  ragModuleSlug,
 }: {
   question: Question
   concept: Concept
   feedback: EvaluateAnswerResponse | null
   userAnswer: string | null
   onNext: () => void
+  ragModuleSlug: string | null
 }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatStreaming, setChatStreaming] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [showChat, setShowChat] = useState(false)
+  const [chunks, setChunks] = useState<LectureChunk[]>([])
+  const [retrieving, setRetrieving] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const { openSetup } = useSetup()
 
+  // Plain-text concept context — used as a fallback when no lecture transcripts
+  // are available for this concept's module.
   const conceptContext = `Concept: ${concept.name}\nDescription: ${concept.description}\nKey Facts: ${concept.key_facts.join('; ')}\n\nQuiz question: ${question.question}\n${question.type === 'mcq' && question.options ? `Options: ${question.options.join(', ')}\n` : ''}Correct answer: ${question.correct_answer}\nStudent's answer: ${userAnswer || '(skipped)'}`
+
+  // Framing prepended to user turns when we have lecture chunks — gives Claude
+  // the failure context up-front so it doesn't have to ask.
+  const failureFraming = `The student is revising "${concept.name}". They were asked: "${question.question}"${question.type === 'mcq' && question.options ? `\nOptions: ${question.options.join(' | ')}` : ''}\nCorrect answer: ${question.correct_answer}\nTheir answer: ${userAnswer || '(skipped)'}`
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, withChunks: LectureChunk[] = chunks) => {
     if (chatStreaming) return
 
     const userMsg: ChatMessage = { role: 'user', content }
@@ -322,18 +343,19 @@ function ReviewAndFeedback({
     const assistantMsg: ChatMessage = { role: 'assistant', content: '' }
     setChatMessages([...newMessages, assistantMsg])
 
+    const onDelta = (delta: string) => {
+      assistantMsg.content += delta
+      setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
+    }
+
     try {
-      await streamChat(
-        newMessages,
-        conceptContext,
-        (chunk) => {
-          assistantMsg.content += chunk
-          setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
-        }
-      )
+      if (withChunks.length > 0) {
+        await streamLectureChat(newMessages, withChunks, onDelta)
+      } else {
+        await streamChat(newMessages, conceptContext, onDelta)
+      }
     } catch (err) {
       if (err instanceof MissingApiKeyError) {
-        // Strip the placeholder assistant message and open the wizard
         setChatMessages((prev) => prev.slice(0, -1))
         setShowChat(false)
         openSetup('required')
@@ -344,13 +366,32 @@ function ReviewAndFeedback({
     } finally {
       setChatStreaming(false)
     }
-  }, [chatMessages, chatStreaming, conceptContext, openSetup])
+  }, [chatMessages, chatStreaming, chunks, conceptContext, openSetup])
 
-  const startChat = useCallback(() => {
+  const startChat = useCallback(async () => {
     setShowChat(true)
-    const initialQ = `I just got this question wrong. Please explain why the correct answer is right and why my answer was wrong. Be concise but thorough.`
-    sendMessage(initialQ)
-  }, [sendMessage])
+
+    // If this concept's module has lecture transcripts, retrieve relevant
+    // moments first so the chat is grounded and we can show timestamp links.
+    let retrievedChunks: LectureChunk[] = []
+    if (ragModuleSlug) {
+      setRetrieving(true)
+      try {
+        const query = `${concept.name}. ${question.question} ${question.correct_answer}`
+        retrievedChunks = await searchLectures(query, ragModuleSlug)
+        setChunks(retrievedChunks)
+      } catch (err) {
+        console.error('Lecture retrieval failed, falling back to concept context:', err)
+      } finally {
+        setRetrieving(false)
+      }
+    }
+
+    const initialQ = retrievedChunks.length > 0
+      ? `${failureFraming}\n\nExplain why the correct answer is right and why my answer was wrong. Cite the lecture sources where they support your explanation.`
+      : `I just got this question wrong. Please explain why the correct answer is right and why my answer was wrong. Be concise but thorough.`
+    sendMessage(initialQ, retrievedChunks)
+  }, [ragModuleSlug, concept.name, question.question, question.correct_answer, failureFraming, sendMessage])
 
   const isCorrect = feedback?.correct
   const isPartial = feedback?.partial_credit
@@ -449,11 +490,11 @@ function ReviewAndFeedback({
               </div>
             )}
 
-            {/* Why? chatbot */}
+            {/* Help me understand */}
             {!isCorrect && !showChat && (
               <Button variant="outline" size="sm" onClick={startChat}>
-                <HelpCircle className="mr-2 h-4 w-4" />
-                Why?
+                {ragModuleSlug ? <Video className="mr-2 h-4 w-4" /> : <HelpCircle className="mr-2 h-4 w-4" />}
+                {ragModuleSlug ? 'Help me understand (with lecture moments)' : 'Why?'}
               </Button>
             )}
 
@@ -465,17 +506,51 @@ function ReviewAndFeedback({
         </Card>
       )}
 
-      {/* Chat thread */}
+      {/* Help panel: lecture moments + chat */}
       {showChat && (
         <Card>
-          <CardContent className="py-4 space-y-3">
+          <CardContent className="py-4 space-y-4">
             <div className="flex items-center gap-2 text-sm font-medium">
               <HelpCircle className="h-4 w-4" />
-              Ask about this question
+              Understanding this question
             </div>
 
+            {/* Lecture moments */}
+            {retrieving && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Searching lecture recordings…
+              </div>
+            )}
+            {chunks.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Video className="h-3 w-3" />
+                  Lecture moments
+                </div>
+                <div className="space-y-1.5">
+                  {chunks.slice(0, 3).map((c) => (
+                    <a
+                      key={c.chunk_id}
+                      href={c.deep_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block rounded-md border border-border bg-background px-3 py-2 text-xs hover:bg-muted transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-medium">{c.lecture_code} @ {c.timestamp_label}</span>
+                        <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                      </div>
+                      <p className="text-muted-foreground line-clamp-2">{c.chunk_text}</p>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3 max-h-80 overflow-y-auto">
-              {chatMessages.map((msg, i) => (
+              {/* Hide the auto-sent opener (always the first user message) — its framing is for Claude, not the user. */}
+              {chatMessages.slice(chatMessages[0]?.role === 'user' ? 1 : 0).map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === 'user'
@@ -484,7 +559,22 @@ function ReviewAndFeedback({
                   }`}>
                     {msg.role === 'assistant' ? (
                       <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                        <Markdown>{msg.content || '...'}</Markdown>
+                        <Markdown
+                          components={{
+                            a: ({ href, children }) => (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline decoration-dotted text-primary"
+                              >
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {chunks.length > 0 ? renderWithCitations(msg.content || '...', chunks) : (msg.content || '...')}
+                        </Markdown>
                       </div>
                     ) : (
                       <p>{msg.content}</p>

@@ -9,6 +9,7 @@ import {
   MissingApiKeyError,
   type LectureChunk,
 } from '@/lib/api'
+import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
 import { Send, Loader2, Video } from 'lucide-react'
 import type { ChatMessage } from '@/types'
@@ -16,19 +17,6 @@ import type { ChatMessage } from '@/types'
 interface LectureMessage extends ChatMessage {
   // Cited chunks attached to assistant turns so [[CITE:n]] can be linkified
   chunks?: LectureChunk[]
-}
-
-/**
- * Renders an assistant message with [[CITE:n]] tokens replaced by markdown
- * links pointing at the Panopto deep link for the cited chunk.
- */
-function renderWithCitations(content: string, chunks: LectureChunk[]): string {
-  return content.replace(/\[\[CITE:(\d+)\]\]/g, (_, n: string) => {
-    const idx = parseInt(n) - 1
-    const chunk = chunks[idx]
-    if (!chunk) return ''
-    return ` [${chunk.lecture_code} @ ${chunk.timestamp_label}](${chunk.deep_link})`
-  })
 }
 
 export function LectureChatPage() {
