@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import OpenAI from 'openai'
 import { requireAuth } from '../lib/auth.js'
 import { rateLimit } from '../lib/rateLimit.js'
+import { recordUsage } from '../lib/usage.js'
 
-const app = new Hono()
+type AppEnv = { Variables: { user: { id: string; email?: string } } }
+const app = new Hono<AppEnv>()
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY
@@ -114,6 +116,17 @@ app.post('/source-search', async (c) => {
     input: query.trim(),
   })
   const embedding = emb.data[0].embedding
+
+  const user = c.get('user')
+  void recordUsage({
+    userId: user?.id ?? null,
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    endpoint: 'source-search',
+    inputTokens: emb.usage?.prompt_tokens ?? 0,
+    outputTokens: 0,
+    meta: { module: module ?? null },
+  })
 
   // Forward the user's JWT so RLS + the security-definer RPC are happy
   const userToken = c.req.header('Authorization')!.slice('Bearer '.length)

@@ -10,14 +10,21 @@ import { CheckCircle, ArrowRight, RefreshCw } from 'lucide-react'
 
 type Step = 'upload' | 'extracting' | 'review' | 'generating' | 'done'
 
-export function IngestionPage() {
+interface IngestionPageProps {
+  /** Default module id for newly-dropped files. When provided, the inline-per-file
+   * module dropdown is still editable but starts pre-set. */
+  defaultModuleId?: string
+}
+
+export function IngestionPage({ defaultModuleId }: IngestionPageProps = {}) {
   const concepts = useAppStore((s) => s.concepts)
   const questions = useAppStore((s) => s.questions)
 
   const [files, setFiles] = useState<UploadedFile[]>([])
-  const [step, setStep] = useState<Step>(
-    concepts.length > 0 ? 'done' : 'upload'
-  )
+  // Always start in upload mode. The previous "auto-done" check based on the
+  // global concept count was misleading: it'd say "ingestion complete" even
+  // for sessions where the user hasn't uploaded anything yet.
+  const [step, setStep] = useState<Step>('upload')
   const [stage, setStage] = useState('')
   const [progress, setProgress] = useState({ current: 0, total: 0, detail: '' })
   const [reviewConcepts, setReviewConcepts] = useState<ReviewConcept[]>([])
@@ -106,7 +113,7 @@ export function IngestionPage() {
 
       {step === 'upload' && (
         <>
-          <FileUploader files={files} onFilesChange={setFiles} />
+          <FileUploader files={files} onFilesChange={setFiles} defaultModuleId={defaultModuleId} />
           {files.length > 0 && (
             <div className="flex justify-end">
               <Button onClick={startExtraction}>

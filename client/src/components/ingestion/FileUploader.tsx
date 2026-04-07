@@ -14,9 +14,11 @@ export interface UploadedFile {
 interface FileUploaderProps {
   files: UploadedFile[]
   onFilesChange: (files: UploadedFile[]) => void
+  /** Default module id assigned to newly-dropped files. */
+  defaultModuleId?: string
 }
 
-export function FileUploader({ files, onFilesChange }: FileUploaderProps) {
+export function FileUploader({ files, onFilesChange, defaultModuleId }: FileUploaderProps) {
   const exams = useAppStore((s) => s.exams)
   const [dragOver, setDragOver] = useState(false)
 
@@ -29,12 +31,12 @@ export function FileUploader({ files, onFilesChange }: FileUploaderProps) {
         newFiles.push({
           filename: file.name,
           content,
-          moduleId: exams[0]?.id || '',
+          moduleId: defaultModuleId || exams[0]?.id || '',
         })
       }
       onFilesChange([...files, ...newFiles])
     },
-    [files, onFilesChange, exams]
+    [files, onFilesChange, exams, defaultModuleId]
   )
 
   const handleDrop = useCallback(

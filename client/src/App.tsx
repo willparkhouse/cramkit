@@ -7,7 +7,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { SetupWizard } from '@/components/auth/SetupWizard'
 import { DashboardPage } from '@/components/dashboard/DashboardPage'
-import { IngestionPage } from '@/components/ingestion/IngestionPage'
+import { AdminPage } from '@/components/admin/AdminPage'
 import { QuizPage } from '@/components/quiz/QuizPage'
 import { MaterialSearchPage } from '@/components/search/MaterialSearchPage'
 import { SchedulePage } from '@/components/schedule/SchedulePage'
@@ -54,8 +54,10 @@ function ProtectedApp() {
           <Route path="/privacy" element={<LegalPage doc="privacy" />} />
 
           {/* Admin-only routes */}
-          {isAdmin && <Route path="/ingest" element={<IngestionPage />} />}
+          {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           {isAdmin && <Route path="/schedule" element={<SchedulePage />} />}
+          {/* Legacy redirect: /ingest is now a tab inside /admin */}
+          {isAdmin && <Route path="/ingest" element={<Navigate to="/admin" replace />} />}
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

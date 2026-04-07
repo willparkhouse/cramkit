@@ -1,6 +1,7 @@
 export interface Exam {
   id: string
   name: string
+  slug: string
   date: string // ISO timestamp
   weight: number
   semester: number

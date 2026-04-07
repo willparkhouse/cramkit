@@ -16,7 +16,8 @@
     "dotenv": "^16.5.0",
     "hono": "^4.7.6",
     "openai": "^4.77.0",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "stripe": "^22.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

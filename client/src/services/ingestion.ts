@@ -1,6 +1,5 @@
 import * as api from '@/lib/api'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_RAG_SLUGS } from '@/lib/constants'
 import type { Concept, Question } from '@/types'
 import type { UploadedFile } from '@/components/ingestion/FileUploader'
 
@@ -135,7 +134,7 @@ export async function generateAllQuestions(
 
   async function processOne(concept: Concept) {
     const exam = store.exams.find((e) => concept.module_ids.includes(e.id))
-    const moduleSlug = exam ? MODULE_RAG_SLUGS[exam.name] : undefined
+    const moduleSlug = exam?.slug
 
     const result = await api.generateQuestions({
       concepts: [{
@@ -218,7 +217,7 @@ export async function retryFailedQuestions(
   for (const concept of missing) {
     callbacks.onProgress(completed, total, concept.name)
     const exam = store.exams.find((e) => concept.module_ids.includes(e.id))
-    const moduleSlug = exam ? MODULE_RAG_SLUGS[exam.name] : undefined
+    const moduleSlug = exam?.slug
 
     try {
       const result = await api.generateQuestions({

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_SHORT_NAMES, MODULE_COLOURS, MODULE_RAG_SLUGS } from '@/lib/constants'
+import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
 import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
 import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
@@ -391,10 +391,10 @@ function FilterPill({
 }
 
 // Resolve which lecture-RAG module slug a concept belongs to (or null if none).
-function resolveRagSlug(concept: Concept, exams: { id: string; name: string }[]): string | null {
+function resolveRagSlug(concept: Concept, exams: { id: string; slug?: string }[]): string | null {
   for (const id of concept.module_ids) {
     const exam = exams.find((e) => e.id === id)
-    if (exam && MODULE_RAG_SLUGS[exam.name]) return MODULE_RAG_SLUGS[exam.name]
+    if (exam?.slug) return exam.slug
   }
   return null
 }

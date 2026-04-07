@@ -6,14 +6,32 @@ services:
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
     container_name: cramkit
     restart: unless-stopped
     environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NODE_ENV: production
+      PORT: 3001
+      # Supabase
       SUPABASE_URL: ${VITE_SUPABASE_URL}
       SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
-      CORS_ORIGINS: https://cramkit.app,http://localhost:5173
-      PORT: 3001
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # LLM providers
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Stripe
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID}
+      # Access control
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://cramkit.app,http://localhost:5173}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - cramkit_net
 

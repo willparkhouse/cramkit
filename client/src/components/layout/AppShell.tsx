@@ -29,7 +29,7 @@ const allNavItems = [
   { to: '/search', icon: Search, label: 'Search materials', adminOnly: false },
   { to: '/progress', icon: BarChart3, label: 'Progress', adminOnly: false },
   { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
-  { to: '/ingest', icon: Upload, label: 'Ingest Notes', adminOnly: true },
+  { to: '/admin', icon: Upload, label: 'Admin', adminOnly: true },
   { to: '/schedule', icon: Calendar, label: 'Schedule', adminOnly: true },
   { to: '/settings', icon: Settings, label: 'Settings', adminOnly: false },
 ]

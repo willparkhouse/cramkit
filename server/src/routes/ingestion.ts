@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
 import { requireAuth, requireAdmin } from '../lib/auth.js'
 import { retrieveChunks, type MatchedChunk } from '../lib/retrieval.js'
+import { recordUsage } from '../lib/usage.js'
 
-const app = new Hono()
+type AppEnv = { Variables: { user: { id: string; email?: string } } }
+const app = new Hono<AppEnv>()
 
 // Ingestion is admin-only — these routes burn the platform's Anthropic credits
 // so we can't expose them to arbitrary signed-in users.
@@ -101,6 +103,17 @@ Guidelines:
     messages: [{ role: 'user', content: userContent }],
   }))
 
+  const user = c.get('user')
+  void recordUsage({
+    userId: user?.id ?? null,
+    provider: 'anthropic',
+    model: SONNET_MODEL,
+    endpoint: 'extract-concepts',
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    meta: { module_name, module_id },
+  })
+
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
 
   // Extract JSON from response (may be wrapped in markdown code block)
@@ -176,6 +189,17 @@ IMPORTANT: Your response must be valid JSON. Do not truncate the output.`,
       },
     ],
   }))
+
+  const dedupUser = c.get('user')
+  void recordUsage({
+    userId: dedupUser?.id ?? null,
+    provider: 'anthropic',
+    model: SONNET_MODEL,
+    endpoint: 'deduplicate',
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    meta: { module_count: modules.length, total_concepts: totalConcepts },
+  })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   console.log(`Dedup response length: ${text.length} chars, stop_reason: ${response.stop_reason}`)
@@ -256,7 +280,8 @@ interface GeneratedQuestion {
 // Generate questions for a single concept, grounded in retrieved source chunks.
 async function generateForConcept(
   concept: { name: string; description: string; key_facts: string[]; difficulty: number },
-  moduleSlug: string | undefined
+  moduleSlug: string | undefined,
+  userId: string | null
 ): Promise<{
   concept_name: string
   questions: (GeneratedQuestion & { source_chunk_ids: string[] })[]
@@ -271,6 +296,8 @@ async function generateForConcept(
       query,
       module: moduleSlug,
       matchCount: 6,
+      userId,
+      endpoint: 'generate-questions',
     })
   } catch (e) {
     console.error(`retrieveChunks failed for "${concept.name}":`, (e as Error).message)
@@ -336,6 +363,16 @@ ${chunkBlock}`
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
   }))
+
+  void recordUsage({
+    userId,
+    provider: 'anthropic',
+    model: SONNET_MODEL,
+    endpoint: 'generate-questions',
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    meta: { concept: concept.name, module: moduleSlug ?? null },
+  })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const jsonMatch = text.match(/\{[\s\S]*\}/)
@@ -421,12 +458,15 @@ app.post('/generate-questions', async (c) => {
     return c.json({ error: `too many concepts in one batch (max ${MAX_GENERATE_CONCEPTS})` }, 413)
   }
 
+  const genUser = c.get('user')
+  const userId = genUser?.id ?? null
+
   // Run with limited concurrency to avoid hammering OpenAI + Anthropic + Supabase.
   const CONCURRENCY = 3
   const results: Awaited<ReturnType<typeof generateForConcept>>[] = []
   for (let i = 0; i < concepts.length; i += CONCURRENCY) {
     const batch = concepts.slice(i, i + CONCURRENCY)
-    const batchResults = await Promise.all(batch.map(co => generateForConcept(co, module)))
+    const batchResults = await Promise.all(batch.map(co => generateForConcept(co, module, userId)))
     results.push(...batchResults)
   }
 

@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { recordUsage } from './usage.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY
@@ -32,6 +33,8 @@ export async function retrieveChunks(opts: {
   module?: string
   matchCount?: number
   sourceTypes?: string[]
+  userId?: string | null
+  endpoint?: string
 }): Promise<MatchedChunk[]> {
   if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not configured')
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -43,6 +46,16 @@ export async function retrieveChunks(opts: {
     input: opts.query.slice(0, 8000),
   })
   const embedding = emb.data[0].embedding
+
+  void recordUsage({
+    userId: opts.userId ?? null,
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    endpoint: opts.endpoint ?? 'retrieve-chunks',
+    inputTokens: emb.usage?.prompt_tokens ?? 0,
+    outputTokens: 0,
+    meta: { module: opts.module ?? null },
+  })
 
   const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_source_chunks`, {
     method: 'POST',

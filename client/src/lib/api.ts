@@ -64,6 +64,104 @@ export async function generateQuestions(req: GenerateQuestionsRequest): Promise<
 }
 
 // ============================================================================
+// Admin API: module + source ingest management
+// ============================================================================
+
+export interface AdminModule extends Exam {
+  coverage: { slide_decks: number; lectures: number; chunks: number }
+}
+
+export interface AdminSource {
+  id: string
+  code: string
+  source_type: 'slides' | 'lecture' | string
+  week: number | null
+  lecture: string | null
+  title: string | null
+  url: string
+  created_at: string
+}
+
+export async function adminListModules(): Promise<AdminModule[]> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch('/api/admin/modules', {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { modules } = await res.json()
+  return modules as AdminModule[]
+}
+
+export async function adminCreateModule(input: {
+  name: string
+  slug: string
+  date: string
+  weight: number
+  semester: number
+}): Promise<Exam> {
+  const { module } = await authedPost<{ module: Exam }>('/api/admin/modules', input)
+  return module
+}
+
+export async function adminListSources(moduleSlug: string): Promise<AdminSource[]> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/sources?module=${encodeURIComponent(moduleSlug)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { sources } = await res.json()
+  return sources as AdminSource[]
+}
+
+export async function adminDeleteSource(id: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/sources/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+}
+
+export async function adminUploadSlides(input: {
+  moduleSlug: string
+  week: number
+  lecture?: string
+  title?: string
+  file: File
+}): Promise<{ source_id: string; code: string; pages: number; chunks_inserted: number }> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const form = new FormData()
+  form.append('module', input.moduleSlug)
+  form.append('week', String(input.week))
+  if (input.lecture) form.append('lecture', input.lecture)
+  if (input.title) form.append('title', input.title)
+  form.append('file', input.file)
+
+  const res = await fetch('/api/admin/sources/slides', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    body: form,
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  return res.json()
+}
+
+export async function adminUploadTranscript(input: {
+  module: string
+  week: number
+  lecture: string
+  panopto_url: string
+  transcript_text: string
+}): Promise<{ source_id: string; code: string; lines: number; chunks_inserted: number }> {
+  return authedPost('/api/admin/sources/transcript', input)
+}
+
+// ============================================================================
 // Browser-side AI calls (BYOK — uses user's own Anthropic key)
 // ============================================================================
 
