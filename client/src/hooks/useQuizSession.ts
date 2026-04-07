@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { pickNextQuestion, type QuizFilters } from '@/services/quiz'
 import { evaluateAnswer, MissingApiKeyError } from '@/lib/api'
+import { bumpStudyActivity } from '@/services/activity'
 import { useSetup } from '@/lib/setupContext'
 import type { Concept, Question, EvaluateAnswerResponse } from '@/types'
 
@@ -81,6 +82,11 @@ export function useQuizSession(filters: QuizFilters) {
             : `The correct answer was: ${state.question!.correct_answer}`,
         },
       }))
+
+      void bumpStudyActivity({
+        questionsAnswered: 1,
+        questionsCorrect: correct ? 1 : 0,
+      })
     },
     [state.question, state.concept, updateKnowledge, markQuestionUsed]
   )
@@ -116,6 +122,11 @@ export function useQuizSession(filters: QuizFilters) {
           correctCount: s.correctCount + (result.correct ? 1 : 0),
           feedback: result,
         }))
+
+        void bumpStudyActivity({
+          questionsAnswered: 1,
+          questionsCorrect: result.correct ? 1 : 0,
+        })
       } catch (err) {
         if (err instanceof MissingApiKeyError) {
           openSetup('required')

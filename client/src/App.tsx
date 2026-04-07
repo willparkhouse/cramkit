@@ -17,6 +17,7 @@ import { ModulesPage } from '@/components/modules/ModulesPage'
 import { LegalPage } from '@/components/legal/LegalPage'
 import { hydrateStore } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
+import { useActiveTime } from '@/hooks/useActiveTime'
 import { useAppStore } from '@/store/useAppStore'
 import { Loader2 } from 'lucide-react'
 
@@ -26,6 +27,7 @@ function ProtectedApp() {
   const { openSetup } = useSetup()
 
   useSyncToSupabase()
+  useActiveTime(!!user)
 
   useEffect(() => {
     if (user) {

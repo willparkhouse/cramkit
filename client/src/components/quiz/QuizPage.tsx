@@ -3,6 +3,7 @@ import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
 import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
 import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
+import { startConversation, logChatMessage, bumpStudyActivity } from '@/services/activity'
 import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
 import { QuestionCard } from './QuestionCard'
@@ -421,6 +422,9 @@ function ReviewAndFeedback({
   const [showChat, setShowChat] = useState(false)
   const [chunks, setChunks] = useState<SourceChunk[]>([])
   const [retrieving, setRetrieving] = useState(false)
+  // Persisted chat conversation id, set when the help panel is opened.
+  // Each turn is logged against this id for internal product analytics.
+  const conversationIdRef = useRef<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   // Tracks whether the user is "pinned" to the bottom of the chat — i.e.
   // hasn't manually scrolled up. We only auto-scroll when pinned, so a
@@ -483,6 +487,12 @@ function ReviewAndFeedback({
     setChatInput('')
     setChatStreaming(true)
 
+    // Log the user turn + bump chat-message stat. Fire-and-forget.
+    if (conversationIdRef.current) {
+      void logChatMessage(conversationIdRef.current, 'user', content)
+      void bumpStudyActivity({ chatMessagesSent: 1 })
+    }
+
     const assistantMsg: ChatMessage = { role: 'assistant', content: '' }
     setChatMessages([...newMessages, assistantMsg])
 
@@ -491,12 +501,14 @@ function ReviewAndFeedback({
       setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
     }
 
+    let succeeded = false
     try {
       if (withChunks.length > 0) {
         await streamSourceChat(newMessages, withChunks, onDelta)
       } else {
         await streamChat(newMessages, conceptContext, onDelta)
       }
+      succeeded = true
     } catch (err) {
       if (err instanceof MissingApiKeyError) {
         setChatMessages((prev) => prev.slice(0, -1))
@@ -508,6 +520,11 @@ function ReviewAndFeedback({
       }
     } finally {
       setChatStreaming(false)
+    }
+
+    // Log the assistant turn after streaming completes.
+    if (succeeded && conversationIdRef.current && assistantMsg.content) {
+      void logChatMessage(conversationIdRef.current, 'assistant', assistantMsg.content)
     }
   }, [chatMessages, chatStreaming, chunks, conceptContext, openSetup])
 
@@ -530,11 +547,21 @@ function ReviewAndFeedback({
       }
     }
 
+    // Persist a conversation row so subsequent turns log against it. We pass
+    // the framing as the title so the conversations list is browsable later.
+    conversationIdRef.current = await startConversation({
+      contextType: 'quiz',
+      conceptId: concept.id,
+      questionId: question.id,
+      ragGrounded: retrievedChunks.length > 0,
+      title: `${concept.name} — ${question.question}`,
+    })
+
     const initialQ = retrievedChunks.length > 0
       ? `${failureFraming}\n\nExplain why the correct answer is right and why my answer was wrong. Cite the lecture or slide sources where they support your explanation.`
       : `I just got this question wrong. Please explain why the correct answer is right and why my answer was wrong. Be concise but thorough.`
     sendMessage(initialQ, retrievedChunks)
-  }, [ragModuleSlug, concept.name, question.question, question.correct_answer, failureFraming, sendMessage])
+  }, [ragModuleSlug, concept.id, concept.name, question.id, question.question, question.correct_answer, failureFraming, sendMessage])
 
   const isCorrect = feedback?.correct
   const isPartial = feedback?.partial_credit
