@@ -49,6 +49,27 @@ export interface QuizAttempt {
   score_after: number
 }
 
+export interface ModuleEnrollment {
+  user_id: string
+  module_id: string
+  enrolled_at: string
+}
+
+export interface ModuleRequest {
+  id: string
+  name: string
+  description: string | null
+  requested_by: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+}
+
+export interface ModuleRequestVote {
+  request_id: string
+  user_id: string
+  voted_at: string
+}
+
 export type SlotStatus = 'pending' | 'completed' | 'skipped'
 
 export interface RevisionSlot {

@@ -3,9 +3,12 @@ import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { hydrateApiKeyFromProfile } from './apiKey'
 
+const ADMIN_EMAIL = 'wjdparkhouse@gmail.com'
+
 interface AuthContextValue {
   session: Session | null
   user: User | null
+  isAdmin: boolean
   loading: boolean
   signOut: () => Promise<void>
 }
@@ -13,6 +16,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({
   session: null,
   user: null,
+  isAdmin: false,
   loading: true,
   signOut: async () => {},
 })
@@ -42,8 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
   }
 
+  const user = session?.user || null
+  const isAdmin = user?.email === ADMIN_EMAIL
+
   return (
-    <AuthContext.Provider value={{ session, user: session?.user || null, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, isAdmin, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )

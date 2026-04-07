@@ -37,9 +37,12 @@ export function useModuleConfidence(examId: string): number {
 }
 
 export function useModulePriorities(): Map<string, number> {
-  const exams = useAppStore((s) => s.exams)
+  const allExams = useAppStore((s) => s.exams)
+  const enrolledModuleIds = useAppStore((s) => s.enrolledModuleIds)
   const concepts = useAppStore((s) => s.concepts)
   const knowledge = useAppStore((s) => s.knowledge)
+
+  const exams = allExams.filter((e) => enrolledModuleIds.includes(e.id))
 
   const priorities = new Map<string, number>()
   let totalPriority = 0

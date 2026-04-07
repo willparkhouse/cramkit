@@ -34,7 +34,12 @@ export function ProgressPage() {
   const concepts = useAppStore((s) => s.concepts)
   const knowledge = useAppStore((s) => s.knowledge)
   const questions = useAppStore((s) => s.questions)
-  const exams = useAppStore((s) => s.exams)
+  const allExams = useAppStore((s) => s.exams)
+  const enrolledModuleIds = useAppStore((s) => s.enrolledModuleIds)
+  const exams = useMemo(
+    () => allExams.filter((e) => enrolledModuleIds.includes(e.id)),
+    [allExams, enrolledModuleIds]
+  )
 
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
   const [expandedConcept, setExpandedConcept] = useState<string | null>(null)

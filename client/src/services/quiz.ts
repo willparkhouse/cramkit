@@ -16,7 +16,11 @@ export interface QuizFilters {
 export function pickNextQuestion(filters: QuizFilters): { concept: Concept; question: Question } | null {
   const state = useAppStore.getState()
   let { concepts, questions } = state
-  const { knowledge, exams } = state
+  const { knowledge, enrolledModuleIds } = state
+
+  // Restrict the exam pool to enrolled modules so the priority algorithm
+  // doesn't allocate weight to modules the user isn't taking.
+  const exams = state.exams.filter((e) => enrolledModuleIds.includes(e.id))
 
   if (concepts.length === 0 || questions.length === 0) return null
 

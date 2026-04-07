@@ -4,7 +4,9 @@ import { useModulePriorities } from '@/store/selectors'
 import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
 
 export function PriorityAllocation() {
-  const exams = useAppStore((s) => s.exams)
+  const allExams = useAppStore((s) => s.exams)
+  const enrolledModuleIds = useAppStore((s) => s.enrolledModuleIds)
+  const exams = allExams.filter((e) => enrolledModuleIds.includes(e.id))
   const priorities = useModulePriorities()
 
   return (

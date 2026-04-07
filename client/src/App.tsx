@@ -12,13 +12,14 @@ import { ChatPage } from '@/components/chat/ChatPage'
 import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
+import { ModulesPage } from '@/components/modules/ModulesPage'
 import { hydrateStore } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
 import { useAppStore } from '@/store/useAppStore'
 import { Loader2 } from 'lucide-react'
 
 function ProtectedApp() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const setHydrated = useAppStore((s) => s.setHydrated)
   const { openSetup } = useSetup()
 
@@ -42,12 +43,16 @@ function ProtectedApp() {
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/ingest" element={<IngestionPage />} />
+          <Route path="/modules" element={<ModulesPage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/chat" element={<ChatPage />} />
-          <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+
+          {/* Admin-only routes */}
+          {isAdmin && <Route path="/ingest" element={<IngestionPage />} />}
+          {isAdmin && <Route path="/schedule" element={<SchedulePage />} />}
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

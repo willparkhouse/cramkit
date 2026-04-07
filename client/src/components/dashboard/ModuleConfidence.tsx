@@ -25,7 +25,9 @@ function ModuleBar({ examId, examName }: { examId: string; examName: string }) {
 }
 
 export function ModuleConfidence() {
-  const exams = useAppStore((s) => s.exams)
+  const allExams = useAppStore((s) => s.exams)
+  const enrolledModuleIds = useAppStore((s) => s.enrolledModuleIds)
+  const exams = allExams.filter((e) => enrolledModuleIds.includes(e.id))
 
   return (
     <Card>

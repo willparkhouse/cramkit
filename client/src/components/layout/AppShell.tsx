@@ -1,19 +1,33 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Upload, Brain, MessageSquare, Calendar, BarChart3, Settings } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Upload,
+  Brain,
+  MessageSquare,
+  Calendar,
+  BarChart3,
+  Settings,
+  GraduationCap,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MobileNav } from './MobileNav'
+import { useAuth } from '@/lib/auth'
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/ingest', icon: Upload, label: 'Ingest Notes' },
-  { to: '/quiz', icon: Brain, label: 'Quiz' },
-  { to: '/progress', icon: BarChart3, label: 'Progress' },
-  { to: '/chat', icon: MessageSquare, label: 'Learn' },
-  { to: '/schedule', icon: Calendar, label: 'Schedule' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const allNavItems = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
+  { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
+  { to: '/quiz', icon: Brain, label: 'Quiz', adminOnly: false },
+  { to: '/progress', icon: BarChart3, label: 'Progress', adminOnly: false },
+  { to: '/chat', icon: MessageSquare, label: 'Learn', adminOnly: false },
+  { to: '/ingest', icon: Upload, label: 'Ingest Notes', adminOnly: true },
+  { to: '/schedule', icon: Calendar, label: 'Schedule', adminOnly: true },
+  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: false },
 ]
 
 export function AppShell() {
+  const { isAdmin } = useAuth()
+  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin)
+
   return (
     <div className="min-h-screen bg-background">
       {/* Desktop sidebar */}
@@ -57,7 +71,7 @@ export function AppShell() {
         </div>
       </main>
 
-      <MobileNav />
+      <MobileNav isAdmin={isAdmin} />
     </div>
   )
 }

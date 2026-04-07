@@ -7,4 +7,6 @@ dist/
 *.db-shm
 *.db-wal
 .DS_Store
-.mcp.jsonpanopto-transcript-extension
+.mcp.json
+panopto-transcript-extension
+data

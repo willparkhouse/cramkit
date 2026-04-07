@@ -19,7 +19,12 @@ import type { Question, Concept, EvaluateAnswerResponse, ChatMessage } from '@/t
 export function QuizPage() {
   const concepts = useAppStore((s) => s.concepts)
   const questions = useAppStore((s) => s.questions)
-  const exams = useAppStore((s) => s.exams)
+  const allExams = useAppStore((s) => s.exams)
+  const enrolledModuleIds = useAppStore((s) => s.enrolledModuleIds)
+  const exams = useMemo(
+    () => allExams.filter((e) => enrolledModuleIds.includes(e.id)),
+    [allExams, enrolledModuleIds]
+  )
   const hydrated = useAppStore((s) => s.hydrated)
 
   const [searchParams] = useSearchParams()

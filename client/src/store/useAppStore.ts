@@ -5,6 +5,7 @@ import { CORRECT_RATE, PARTIAL_RATE, INCORRECT_DECAY } from '@/lib/constants'
 interface AppState {
   // Data
   exams: Exam[]
+  enrolledModuleIds: string[]
   concepts: Concept[]
   questions: Question[]
   knowledge: Record<string, KnowledgeEntry>
@@ -17,6 +18,7 @@ interface AppState {
   // Actions
   setHydrated: (hydrated: boolean) => void
   setExams: (exams: Exam[]) => void
+  setEnrolledModuleIds: (ids: string[]) => void
   setConcepts: (concepts: Concept[]) => void
   addConcepts: (concepts: Concept[]) => void
   setQuestions: (questions: Question[]) => void
@@ -32,6 +34,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   exams: [],
+  enrolledModuleIds: [],
   concepts: [],
   questions: [],
   knowledge: {},
@@ -41,6 +44,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setHydrated: (hydrated) => set({ hydrated }),
   setExams: (exams) => set({ exams }),
+  setEnrolledModuleIds: (ids) => set({ enrolledModuleIds: ids }),
   setConcepts: (concepts) => set({ concepts }),
   addConcepts: (newConcepts) => set((state) => ({
     concepts: [...state.concepts, ...newConcepts],

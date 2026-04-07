@@ -15,6 +15,9 @@ import type {
   Question,
   KnowledgeEntry,
   RevisionSlot,
+  ModuleEnrollment,
+  ModuleRequest,
+  ModuleRequestVote,
 } from '@/types'
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
@@ -142,8 +145,109 @@ export async function fetchExams(): Promise<Exam[]> {
   return (data || []) as Exam[]
 }
 
-export async function fetchConcepts(): Promise<Concept[]> {
-  const { data, error } = await supabase.from('concepts').select('*').order('name')
+// ============================================================================
+// Module enrollments
+// ============================================================================
+
+export async function fetchEnrollments(): Promise<ModuleEnrollment[]> {
+  const { data, error } = await supabase.from('module_enrollments').select('*')
+  if (error) throw error
+  return (data || []) as ModuleEnrollment[]
+}
+
+export async function enrollInModule(moduleId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('module_enrollments')
+    .insert({ user_id: user.id, module_id: moduleId })
+  if (error && error.code !== '23505') throw error // ignore unique violation
+}
+
+export async function unenrollFromModule(moduleId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('module_enrollments')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('module_id', moduleId)
+  if (error) throw error
+}
+
+// ============================================================================
+// Module requests + votes
+// ============================================================================
+
+export async function fetchModuleRequests(): Promise<ModuleRequest[]> {
+  const { data, error } = await supabase
+    .from('module_requests')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []) as ModuleRequest[]
+}
+
+export async function fetchRequestVotes(): Promise<ModuleRequestVote[]> {
+  const { data, error } = await supabase.from('module_request_votes').select('*')
+  if (error) throw error
+  return (data || []) as ModuleRequestVote[]
+}
+
+export async function createModuleRequest(name: string, description: string): Promise<ModuleRequest> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('module_requests')
+    .insert({
+      name: name.trim(),
+      description: description.trim() || null,
+      requested_by: user.id,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return data as ModuleRequest
+}
+
+export async function voteForRequest(requestId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('module_request_votes')
+    .insert({ request_id: requestId, user_id: user.id })
+  if (error && error.code !== '23505') throw error
+}
+
+export async function unvoteRequest(requestId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('module_request_votes')
+    .delete()
+    .eq('request_id', requestId)
+    .eq('user_id', user.id)
+  if (error) throw error
+}
+
+// ============================================================================
+// Concepts (filtered by user's enrolled modules)
+// ============================================================================
+
+export async function fetchConcepts(enrolledModuleIds: string[]): Promise<Concept[]> {
+  if (enrolledModuleIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('concepts')
+    .select('*')
+    .overlaps('module_ids', enrolledModuleIds)
+    .order('name')
   if (error) throw error
   return (data || []) as Concept[]
 }
@@ -183,10 +287,22 @@ export async function saveConcepts(concepts: Partial<Concept>[]): Promise<Concep
   return (data || []) as Concept[]
 }
 
-export async function fetchQuestions(): Promise<Question[]> {
-  const { data, error } = await supabase.from('questions').select('*')
-  if (error) throw error
-  return (data || []) as Question[]
+export async function fetchQuestions(conceptIds: string[]): Promise<Question[]> {
+  if (conceptIds.length === 0) return []
+
+  // Postgres has a limit on `in` clause size — chunk if needed
+  const CHUNK = 200
+  const all: Question[] = []
+  for (let i = 0; i < conceptIds.length; i += CHUNK) {
+    const chunk = conceptIds.slice(i, i + CHUNK)
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .in('concept_id', chunk)
+    if (error) throw error
+    all.push(...((data || []) as Question[]))
+  }
+  return all
 }
 
 export async function saveQuestions(questions: Partial<Question>[]): Promise<Question[]> {
