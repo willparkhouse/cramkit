@@ -38,31 +38,23 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Top bar — minimal, just the logo */}
-      <header className="flex items-center justify-between px-6 py-5 md:px-10">
-        <Logo height={28} />
-      </header>
-
-      {/* Hero + form */}
-      <main className="flex-1 flex items-center justify-center px-6 py-8">
-        <div className="w-full max-w-md space-y-8">
+      {/* Hero with big centered logo */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+        <div className="w-full max-w-lg space-y-10">
           {sent ? (
             <SentState email={email} onReset={() => { setSent(false); setEmail('') }} />
           ) : (
             <>
-              {/* Hero copy */}
-              <div className="space-y-3 text-center">
-                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
-                  Cram smarter.
-                </h1>
-                <p className="text-base text-muted-foreground max-w-sm mx-auto">
-                  AI-powered exam revision built for University of Birmingham students.
-                  Pick your modules. Practise. Track your weakest spots.
-                </p>
+              {/* Big centred logo */}
+              <div className="flex justify-center">
+                <Logo className="w-72 md:w-96" />
               </div>
 
+              {/* Dictionary definition */}
+              <DictionaryDefinition />
+
               {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4 max-w-sm mx-auto">
                 <div>
                   <label htmlFor="email" className="text-xs font-medium text-muted-foreground uppercase tracking-wider block mb-2">
                     Email
@@ -117,17 +109,16 @@ export function LoginPage() {
                     </>
                   )}
                 </Button>
-              </form>
 
-              <p className="text-xs text-muted-foreground text-center">
-                No password. We'll email you a one-tap login link.
-              </p>
+                <p className="text-xs text-muted-foreground text-center">
+                  No password. We'll email you a one-tap login link.
+                </p>
+              </form>
             </>
           )}
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="px-6 py-6 text-center">
         <p className="text-xs text-muted-foreground">
           Built for May 2026 exams · BYOK Anthropic for AI features
@@ -137,9 +128,31 @@ export function LoginPage() {
   )
 }
 
+function DictionaryDefinition() {
+  return (
+    <div className="border-y border-border py-5 px-1 max-w-md mx-auto">
+      <div className="flex items-baseline gap-3 mb-2">
+        <span className="text-xs italic text-muted-foreground">/ˈkramˌkɪt/</span>
+        <span className="text-xs text-muted-foreground">noun</span>
+      </div>
+      <p className="text-sm text-foreground leading-relaxed">
+        a survival pack for the weeks before an exam — past papers,
+        scattered lecture notes, and an AI tutor that quietly tracks
+        what you actually know.
+      </p>
+      <p className="text-xs text-muted-foreground italic mt-2">
+        "I haven't started revising yet — better break out the cramkit."
+      </p>
+    </div>
+  )
+}
+
 function SentState({ email, onReset }: { email: string; onReset: () => void }) {
   return (
     <div className="space-y-6 text-center">
+      <div className="flex justify-center">
+        <Logo className="w-56" />
+      </div>
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
         <CheckCircle className="h-7 w-7 text-primary" />
       </div>
