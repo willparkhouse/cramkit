@@ -1,0 +1,74 @@
+{
+  "brand_identity": {
+    "name": "cramkit",
+    "design_philosophy": {
+      "core_values": ["cool", "efficient", "calm", "supportive"],
+    },
+    "color_palette": {
+      "base": [
+        { "name": "Off-White", "hex": "#E8E9D4", "role": "Background, Type" },
+        { "name": "Base Black", "hex": "#100D0D", "role": "Primary Type, Background" }
+      ],
+      "neutral": [
+        { "name": "Purple", "hex": "#5417A0", "role": "Functional, Structural" },
+        { "name": "Blue", "hex": "#2746F3", "role": "Functional, Structural" },
+        { "name": "Olive", "hex": "#919237", "role": "Functional, Structural" },
+        { "name": "Green", "hex": "#12952C", "role": "Functional, Structural" }
+      ],
+      "expressive": [
+        { "name": "Lime", "hex": "#CCFC51", "role": "Highlights, Accents" },
+        { "name": "Yellow", "hex": "#FFE326", "role": "Highlights, Accents" },
+        { "name": "Orange", "hex": "#FF5D35", "role": "Highlights, Accents" },
+        { "name": "Pink", "hex": "#F82F9A", "role": "Highlights, Accents" },
+        { "name": "Deep Red", "hex": "#2C0E0E", "role": "Highlights, Accents" }
+      ]
+    },
+    "typography": {
+      "pairings": {
+        "logo_type": {
+          "family": "DM Sans",
+          "weight": "Black 900 Italic",
+          "usage": "Logo and headlines"
+        },
+        "subheading": {
+          "family": "Kaisei Tokumin",
+          "weight": "Medium",
+          "settings": {
+            "letter_spacing": "-3",
+            "line_height": "97%"
+          }
+        },
+        "body_copy": {
+          "family": "National 2",
+          "weight": "Bold",
+          "settings": {
+            "letter_spacing": "0",
+            "line_height": "120%"
+          },
+          "usage": "Paragraphs, UI elements, typesetting"
+        }
+      }
+    },
+    "logo_system": {
+      "components": "Wordmark (Geometric) + Symbol (Rewind Icon)",
+      "variations": [
+        "Primary",
+        "Compensated (White on Dark, <60px height)"
+      ],
+      "app_icons": [
+        { "type": "Letter", "content": "R" },
+        { "type": "Symbol", "content": "Rewind Icon" }
+      ],
+      "rules": {
+        "clear_space": "Strict modular grid",
+        "co_branding": "Use neutral/monochrome version; align to shared visual grid"
+      }
+    },
+    "assets": {
+      "illustrations": {
+        "style": "Hand-drawn, raw, thick lines, visible imperfections",
+        "motifs": ["Eyes", "Cameras", "Music Notes", "Clocks", "Rewind Symbols"]
+      }
+    }
+  }
+}

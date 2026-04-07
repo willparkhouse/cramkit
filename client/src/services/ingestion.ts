@@ -86,7 +86,18 @@ export async function extractConcepts(
     try {
       const dedupResult = await api.deduplicateConcepts({ modules: allModuleConcepts })
       callbacks.onProgress(1, 1)
-      return dedupResult.unique_concepts
+      // Dedup response strips week/lecture — re-attach by name lookup
+      const lookup = new Map<string, { week: number | null; lecture: string | null }>()
+      for (const m of allModuleConcepts) {
+        for (const c of m.concepts) {
+          lookup.set(c.name, { week: c.week, lecture: c.lecture })
+        }
+      }
+      return dedupResult.unique_concepts.map((c) => ({
+        ...c,
+        week: lookup.get(c.name)?.week ?? null,
+        lecture: lookup.get(c.name)?.lecture ?? null,
+      }))
     } catch (err) {
       console.warn('Dedup failed, using all concepts as-is:', err)
     }

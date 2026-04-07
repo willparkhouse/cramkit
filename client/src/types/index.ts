@@ -56,6 +56,7 @@ export interface RevisionSlot {
   start_time: string
   end_time: string
   allocated_module_id: string | null
+  calendar_event_id: string | null
   status: SlotStatus
   created_at: string
 }

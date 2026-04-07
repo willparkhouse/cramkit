@@ -7,14 +7,9 @@ import { ChevronDown, ChevronUp, Trash2, Edit2, Check } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 import { MODULE_SHORT_NAMES } from '@/lib/constants'
 
-interface ConceptItem {
-  name: string
-  description: string
-  key_facts: string[]
-  difficulty: number
-  source_excerpt: string
-  module_ids: string[]
-}
+import type { ReviewConcept } from '@/services/ingestion'
+
+type ConceptItem = ReviewConcept
 
 interface ConceptReviewProps {
   concepts: ConceptItem[]
