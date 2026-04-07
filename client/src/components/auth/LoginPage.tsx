@@ -34,7 +34,7 @@ export function LoginPage() {
     }
   }
 
-  const showBhamWarning = email && isValidEmail(email.trim()) && !isBhamEmail(email.trim())
+  const showBhamWarning = email && isValidEmail(email.trim()) && isBhamEmail(email.trim())
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
