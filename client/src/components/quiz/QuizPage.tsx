@@ -114,136 +114,107 @@ export function QuizPage() {
 
   const mcqOnly = filters.questionType === 'mcq'
 
+  const updateFilter = (next: QuizFilters) => {
+    setFilters(next)
+    session.nextQuestion(next)
+  }
+
+  const modes: { mode: QuizMode; label: string }[] = [
+    { mode: 'weakest', label: 'Weakest First' },
+    { mode: 'untested', label: 'Untested' },
+    { mode: 'mistakes', label: 'Review Mistakes' },
+    { mode: 'spaced', label: 'Spaced Repetition' },
+  ]
+
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-2xl space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Quiz</h1>
-        <div className="text-sm text-muted-foreground">
+      <div className="flex items-end justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">Quiz</h1>
+        <div className="text-sm text-muted-foreground tabular-nums">
           {session.correctCount}/{session.questionsAnswered} correct
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Module filter */}
-        <Badge
-          variant={filters.moduleId === null ? 'default' : 'outline'}
-          className="cursor-pointer"
-          onClick={() => {
-            const next = { ...filters, moduleId: null, week: null }
-            setFilters(next)
-            session.nextQuestion(next)
-          }}
-        >
-          All modules
-        </Badge>
-        {exams.map((exam) => {
-          const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
-          const colour = MODULE_COLOURS[exam.name] || '#888'
-          const active = filters.moduleId === exam.id
-          return (
-            <Badge
-              key={exam.id}
-              variant={active ? 'default' : 'outline'}
-              className="cursor-pointer"
-              style={active ? { backgroundColor: colour, borderColor: colour } : {}}
-              onClick={() => {
-                const next = { ...filters, moduleId: active ? null : exam.id, week: null }
-                setFilters(next)
-                session.nextQuestion(next)
-              }}
-            >
-              {shortName}
-            </Badge>
-          )
-        })}
+      {/* Filters — grouped into labelled rows */}
+      <div className="space-y-4 rounded-xl border border-border bg-card/50 p-4">
+        <FilterGroup label="Module">
+          <FilterPill
+            active={filters.moduleId === null}
+            onClick={() => updateFilter({ ...filters, moduleId: null, week: null })}
+          >
+            All
+          </FilterPill>
+          {exams.map((exam) => {
+            const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+            const colour = MODULE_COLOURS[exam.name] || '#888'
+            const active = filters.moduleId === exam.id
+            return (
+              <FilterPill
+                key={exam.id}
+                active={active}
+                accentColour={active ? colour : undefined}
+                onClick={() =>
+                  updateFilter({ ...filters, moduleId: active ? null : exam.id, week: null })
+                }
+              >
+                {shortName}
+              </FilterPill>
+            )
+          })}
+        </FilterGroup>
 
-        {/* Divider */}
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* Week filter */}
         {availableWeeks.length > 0 && (
-          <>
-            <Badge
-              variant={filters.week === null ? 'default' : 'outline'}
-              className="cursor-pointer"
-              onClick={() => {
-                const next = { ...filters, week: null }
-                setFilters(next)
-                session.nextQuestion(next)
-              }}
+          <FilterGroup label="Week">
+            <FilterPill
+              active={filters.week === null}
+              onClick={() => updateFilter({ ...filters, week: null })}
             >
-              All weeks
-            </Badge>
-            {availableWeeks.map(({ week, lecture }) => {
+              All
+            </FilterPill>
+            {availableWeeks.map(({ week }) => {
               const active = filters.week === week
               return (
-                <Badge
+                <FilterPill
                   key={week}
-                  variant={active ? 'default' : 'outline'}
-                  className="cursor-pointer"
-                  onClick={() => {
-                    const next = { ...filters, week: active ? null : week }
-                    setFilters(next)
-                    session.nextQuestion(next)
-                  }}
+                  active={active}
+                  onClick={() => updateFilter({ ...filters, week: active ? null : week })}
                 >
                   W{week}
-                </Badge>
+                </FilterPill>
               )
             })}
-            <div className="w-px h-5 bg-border mx-1" />
-          </>
+          </FilterGroup>
         )}
 
-        {/* Question type toggle */}
-        <Button
-          variant={mcqOnly ? 'default' : 'outline'}
-          size="sm"
-          className="h-6 text-xs gap-1.5 px-2.5"
-          onClick={() => {
-            const nextType = mcqOnly ? 'all' as const : 'mcq' as const
-            const next = { ...filters, questionType: nextType }
-            setFilters(next)
-            session.nextQuestion(next)
-          }}
-        >
-          {mcqOnly ? (
-            <>
-              <WifiOff className="h-3 w-3" />
-              Offline only
-            </>
-          ) : (
-            <>
-              <Wifi className="h-3 w-3" />
-              All types
-            </>
-          )}
-        </Button>
-      </div>
+        <FilterGroup label="Mode">
+          {modes.map(({ mode, label }) => (
+            <FilterPill
+              key={mode}
+              active={filters.mode === mode}
+              onClick={() => updateFilter({ ...filters, mode })}
+            >
+              {label}
+            </FilterPill>
+          ))}
+        </FilterGroup>
 
-      {/* Mode selector */}
-      <div className="flex flex-wrap gap-2">
-        {([
-          { mode: 'weakest' as QuizMode, label: 'Weakest First' },
-          { mode: 'untested' as QuizMode, label: 'Untested' },
-          { mode: 'mistakes' as QuizMode, label: 'Review Mistakes' },
-          { mode: 'spaced' as QuizMode, label: 'Spaced Repetition' },
-        ]).map(({ mode, label }) => (
-          <Badge
-            key={mode}
-            variant={filters.mode === mode ? 'default' : 'outline'}
-            className="cursor-pointer"
-            onClick={() => {
-              const next = { ...filters, mode }
-              setFilters(next)
-              session.nextQuestion(next)
-            }}
+        <FilterGroup label="Question type">
+          <FilterPill
+            active={!mcqOnly}
+            onClick={() => updateFilter({ ...filters, questionType: 'all' })}
+            icon={<Wifi className="h-3 w-3" />}
           >
-            {label}
-          </Badge>
-        ))}
+            All types
+          </FilterPill>
+          <FilterPill
+            active={mcqOnly}
+            onClick={() => updateFilter({ ...filters, questionType: 'mcq' })}
+            icon={<WifiOff className="h-3 w-3" />}
+          >
+            Offline only
+          </FilterPill>
+        </FilterGroup>
       </div>
 
       {/* Question (interactive or read-only with feedback) */}
@@ -282,6 +253,51 @@ export function QuizPage() {
         </Card>
       )}
     </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Filter primitives
+// ----------------------------------------------------------------------------
+
+function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground pt-1.5">
+        {label}
+      </div>
+      <div className="flex-1 flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children,
+  icon,
+  accentColour,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+  icon?: React.ReactNode
+  accentColour?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={active && accentColour ? { backgroundColor: accentColour, borderColor: accentColour, color: 'white' } : undefined}
+      className={
+        active
+          ? 'inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium border border-primary bg-primary text-primary-foreground transition-colors'
+          : 'inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium border border-border bg-transparent text-foreground/80 hover:bg-accent hover:text-foreground transition-colors'
+      }
+    >
+      {icon}
+      {children}
+    </button>
   )
 }
 
