@@ -9,7 +9,7 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type Stripe from 'stripe'
-import { stripe, STRIPE_WEBHOOK_SECRET } from '../lib/stripe.js'
+import { getStripe, STRIPE_WEBHOOK_SECRET } from '../lib/stripe.js'
 
 const app = new Hono()
 
@@ -86,7 +86,7 @@ app.post('/webhooks/stripe', async (c) => {
 
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET)
+    event = getStripe().webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET)
   } catch (err) {
     console.error('stripe webhook signature verification failed:', (err as Error).message)
     return c.json({ error: 'invalid signature' }, 400)
@@ -100,7 +100,7 @@ app.post('/webhooks/stripe', async (c) => {
         const session = event.data.object as Stripe.Checkout.Session
         if (session.subscription && session.customer) {
           const subId = typeof session.subscription === 'string' ? session.subscription : session.subscription.id
-          const sub = await stripe.subscriptions.retrieve(subId)
+          const sub = await getStripe().subscriptions.retrieve(subId)
           await syncSubscription(sb, sub)
         }
         break
@@ -116,7 +116,7 @@ app.post('/webhooks/stripe', async (c) => {
         const invoice = event.data.object as Stripe.Invoice
         const subId = (invoice as unknown as { subscription?: string | Stripe.Subscription }).subscription
         if (subId) {
-          const sub = await stripe.subscriptions.retrieve(typeof subId === 'string' ? subId : subId.id)
+          const sub = await getStripe().subscriptions.retrieve(typeof subId === 'string' ? subId : subId.id)
           await syncSubscription(sb, sub)
         }
         break

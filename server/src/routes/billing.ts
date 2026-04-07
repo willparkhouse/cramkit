@@ -1,12 +1,12 @@
 /**
  * Billing routes — Stripe Checkout, customer portal, status.
- * All routes require auth. Webhook lives in routes/webhooks/stripe.ts and
+ * All routes require auth. Webhook lives in routes/webhooks/getStripe().ts and
  * handles the actual subscription state mutations.
  */
 import { Hono } from 'hono'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuth } from '../lib/auth.js'
-import { stripe, STRIPE_PRICE_ID } from '../lib/stripe.js'
+import { getStripe, STRIPE_PRICE_ID } from '../lib/stripe.js'
 
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
@@ -39,7 +39,7 @@ async function ensureCustomer(userId: string, email: string | undefined): Promis
 
   if (profile?.stripe_customer_id) return profile.stripe_customer_id
 
-  const customer = await stripe.customers.create({
+  const customer = await getStripe().customers.create({
     email,
     metadata: { supabase_user_id: userId },
   })
@@ -59,7 +59,7 @@ app.post('/billing/checkout', async (c) => {
   try {
     const customerId = await ensureCustomer(user.id, user.email)
     const base = appUrl()
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
@@ -87,7 +87,7 @@ app.post('/billing/portal', async (c) => {
   try {
     const customerId = await ensureCustomer(user.id, user.email)
     const base = appUrl()
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await getStripe().billingPortal.sessions.create({
       customer: customerId,
       return_url: `${base}/account`,
     })
