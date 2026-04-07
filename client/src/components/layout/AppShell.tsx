@@ -22,6 +22,7 @@ import { MobileNav } from './MobileNav'
 import { ThemeToggle } from './ThemeToggle'
 import { Logo } from './Logo'
 import { useAuth } from '@/lib/auth'
+import { RightRailProvider, RightRailSlot, useRightRailActive } from './RightRail'
 
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
@@ -35,8 +36,17 @@ const allNavItems = [
 ]
 
 export function AppShell() {
+  return (
+    <RightRailProvider>
+      <AppShellInner />
+    </RightRailProvider>
+  )
+}
+
+function AppShellInner() {
   const { isAdmin } = useAuth()
   const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin)
+  const rightRailActive = useRightRailActive()
 
   return (
     <div className="min-h-screen bg-background">
@@ -87,13 +97,20 @@ export function AppShell() {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="md:pl-60 pb-20 md:pb-0">
+      {/* Main content. Right padding kicks in on lg+ when a page is using
+          the right rail (currently the Quiz filters). */}
+      <main
+        className={cn(
+          'md:pl-60 pb-20 md:pb-0 transition-[padding] duration-200',
+          rightRailActive && 'lg:pr-72'
+        )}
+      >
         <div className="mx-auto max-w-5xl p-4 md:p-8">
           <Outlet />
         </div>
       </main>
 
+      <RightRailSlot />
       <MobileNav isAdmin={isAdmin} />
     </div>
   )

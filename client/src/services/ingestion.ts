@@ -42,11 +42,14 @@ export async function extractConcepts(
     const moduleName = exam?.name || 'Unknown'
     callbacks.onProgress(i, files.length, `Extracting from ${file.filename}`)
 
-    // Auto-detect week number and lecture title from filename
-    // Matches patterns like "1. Topic.md", "7.1 Topic.md", "11. Topic.md"
-    const weekMatch = file.filename.match(/^(\d+)[\.\s]/)
-    const week = weekMatch ? parseInt(weekMatch[1]) : null
-    const lecture = file.filename.replace(/^\d+[\.\d]*[\.\s]+/, '').replace(/\.md$/i, '') || null
+    // We used to auto-extract `week` from the leading number in the filename,
+    // but with mixed conventions (notes/slides/transcripts can each name files
+    // by week OR by lecture id), this produced bogus weeks like 19. Concept
+    // grouping by week is a soft feature anyway — the source-chunk RAG retrieval
+    // is what actually grounds questions. Leave week null and use the filename
+    // (minus extension) as the lecture label.
+    const week = null
+    const lecture = file.filename.replace(/\.md$/i, '') || null
 
     const result = await api.extractConcepts({
       notes: file.content,

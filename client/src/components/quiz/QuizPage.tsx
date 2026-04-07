@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, FileText, ExternalLink, SlidersHorizontal, ChevronDown, Sparkles } from 'lucide-react'
+import { Brain, GraduationCap, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, FileText, ExternalLink, SlidersHorizontal, ChevronDown, Sparkles } from 'lucide-react'
+import { RightRail } from '@/components/layout/RightRail'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import type { QuizFilters, QuizMode } from '@/services/quiz'
@@ -165,6 +166,78 @@ export function QuizPage() {
     ? MODULE_SHORT_NAMES[exams.find((e) => e.id === filters.moduleId)?.name || ''] || 'Module'
     : 'All modules'
   const activeMode = modes.find((m) => m.mode === filters.mode)?.label || 'Weakest'
+  const selectClass = "w-full border border-border rounded-md bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+
+  const filterGroups = (
+    <div className="space-y-4">
+      <FilterField label="Module">
+        <select
+          className={selectClass}
+          value={filters.moduleId ?? ''}
+          onChange={(e) => updateFilter({ ...filters, moduleId: e.target.value || null, week: null })}
+        >
+          <option value="">All modules</option>
+          {exams.map((exam) => (
+            <option key={exam.id} value={exam.id}>{exam.name}</option>
+          ))}
+        </select>
+      </FilterField>
+
+      {availableWeeks.length > 0 && (
+        <FilterField label="Week">
+          <select
+            className={selectClass}
+            value={filters.week ?? ''}
+            onChange={(e) => updateFilter({ ...filters, week: e.target.value ? parseInt(e.target.value) : null })}
+          >
+            <option value="">All weeks</option>
+            {availableWeeks.map(({ week }) => (
+              <option key={week} value={week}>Week {week}</option>
+            ))}
+          </select>
+        </FilterField>
+      )}
+
+      <FilterField label="Difficulty">
+        <select
+          className={selectClass}
+          value={filters.difficulty}
+          onChange={(e) => updateFilter({ ...filters, difficulty: e.target.value as QuizFilters['difficulty'] })}
+        >
+          {difficulties.map(({ value, label }) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+      </FilterField>
+
+      <FilterField label="Question type">
+        <select
+          className={selectClass}
+          value={filters.questionType}
+          onChange={(e) => updateFilter({ ...filters, questionType: e.target.value as QuizFilters['questionType'] })}
+        >
+          <option value="all">All types (uses AI)</option>
+          <option value="mcq">Multiple choice only (offline)</option>
+        </select>
+      </FilterField>
+
+      <FilterField label="Selection mode">
+        <select
+          className={selectClass}
+          value={filters.mode}
+          onChange={(e) => updateFilter({ ...filters, mode: e.target.value as QuizMode })}
+        >
+          {modes.map(({ mode, label }) => (
+            <option key={mode} value={mode}>{label}</option>
+          ))}
+        </select>
+        <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+          {modes.find((m) => m.mode === filters.mode)?.description}
+        </p>
+      </FilterField>
+    </div>
+  )
+
   const filterSummary = [
     activeModuleName,
     filters.week !== null ? `W${filters.week}` : null,
@@ -175,10 +248,26 @@ export function QuizPage() {
     .join(' · ')
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      {/* Compact filter bar — collapsed by default. Same width as the
-          question card so the eye reads them as a unit. */}
-      <div className="mx-auto max-w-3xl rounded-xl bg-muted/40 ring-1 ring-border/60 shadow-sm">
+    <div className="space-y-4">
+      {/* Filters live in the global right rail on lg+; below lg they collapse
+          into a header bar above the question. */}
+      <RightRail>
+        <div className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-foreground/70" />
+              <h2 className="text-sm font-semibold">Filters</h2>
+            </div>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {session.correctCount}/{session.questionsAnswered}
+            </span>
+          </div>
+          {filterGroups}
+        </div>
+      </RightRail>
+
+      {/* Mobile/tablet collapsible filter bar */}
+      <div className="lg:hidden mx-auto max-w-3xl rounded-xl bg-muted/40 ring-1 ring-border/60 shadow-sm">
         <button
           type="button"
           onClick={() => setFiltersOpen((o) => !o)}
@@ -199,102 +288,8 @@ export function QuizPage() {
         </button>
 
         {filtersOpen && (
-          <div className="px-4 pb-3 pt-1 space-y-2.5 border-t border-border/60">
-            <FilterGroup label="Module">
-              <FilterPill
-                active={filters.moduleId === null}
-                onClick={() => updateFilter({ ...filters, moduleId: null, week: null })}
-              >
-                All
-              </FilterPill>
-              {exams.map((exam) => {
-                const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
-                const colour = MODULE_COLOURS[exam.name] || '#888'
-                const active = filters.moduleId === exam.id
-                return (
-                  <FilterPill
-                    key={exam.id}
-                    active={active}
-                    accentColour={active ? colour : undefined}
-                    onClick={() =>
-                      updateFilter({ ...filters, moduleId: active ? null : exam.id, week: null })
-                    }
-                  >
-                    {shortName}
-                  </FilterPill>
-                )
-              })}
-            </FilterGroup>
-
-            {availableWeeks.length > 0 && (
-              <FilterGroup label="Week">
-                <FilterPill
-                  active={filters.week === null}
-                  onClick={() => updateFilter({ ...filters, week: null })}
-                >
-                  All
-                </FilterPill>
-                {availableWeeks.map(({ week }) => {
-                  const active = filters.week === week
-                  return (
-                    <FilterPill
-                      key={week}
-                      active={active}
-                      onClick={() => updateFilter({ ...filters, week: active ? null : week })}
-                    >
-                      W{week}
-                    </FilterPill>
-                  )
-                })}
-              </FilterGroup>
-            )}
-
-            <FilterGroup label="Difficulty">
-              {difficulties.map(({ value, label }) => (
-                <FilterPill
-                  key={value}
-                  active={filters.difficulty === value}
-                  onClick={() => updateFilter({ ...filters, difficulty: value })}
-                >
-                  {label}
-                </FilterPill>
-              ))}
-            </FilterGroup>
-
-            <FilterGroup label="Type">
-              <FilterPill
-                active={!mcqOnly}
-                onClick={() => updateFilter({ ...filters, questionType: 'all' })}
-                icon={<Wifi className="h-3 w-3" />}
-              >
-                All
-              </FilterPill>
-              <FilterPill
-                active={mcqOnly}
-                onClick={() => updateFilter({ ...filters, questionType: 'mcq' })}
-                icon={<WifiOff className="h-3 w-3" />}
-              >
-                Offline
-              </FilterPill>
-            </FilterGroup>
-
-            <div className="pt-2 mt-1 border-t border-border/60 space-y-2">
-              <FilterGroup label="Mode">
-                {modes.map(({ mode, label, description }) => (
-                  <FilterPill
-                    key={mode}
-                    active={filters.mode === mode}
-                    onClick={() => updateFilter({ ...filters, mode })}
-                    title={description}
-                  >
-                    {label}
-                  </FilterPill>
-                ))}
-              </FilterGroup>
-              <p className="text-[11px] text-muted-foreground pl-[68px]">
-                {modes.find((m) => m.mode === filters.mode)?.description}
-              </p>
-            </div>
+          <div className="px-4 pb-4 pt-1 border-t border-border/60">
+            {filterGroups}
           </div>
         )}
       </div>
@@ -347,47 +342,12 @@ export function QuizPage() {
 // Filter primitives
 // ----------------------------------------------------------------------------
 
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-14 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex-1 flex flex-wrap gap-1">{children}</div>
-    </div>
-  )
-}
-
-function FilterPill({
-  active,
-  onClick,
-  children,
-  icon,
-  accentColour,
-  title,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-  icon?: React.ReactNode
-  accentColour?: string
-  title?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      style={active && accentColour ? { backgroundColor: accentColour, borderColor: accentColour, color: 'white' } : undefined}
-      className={
-        active
-          ? 'inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium bg-primary text-primary-foreground shadow-sm transition-all'
-          : 'inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium bg-background/60 ring-1 ring-border/60 text-foreground/80 hover:bg-background hover:text-foreground hover:ring-border transition-all'
-      }
-    >
-      {icon}
+    <div className="space-y-1.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
       {children}
-    </button>
+    </div>
   )
 }
 

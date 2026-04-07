@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from './supabase'
 import { getApiKey } from './apiKey'
+import { getCurrentTier } from './subscription'
 import type {
   ExtractConceptsRequest,
   ExtractConceptsResponse,
@@ -178,7 +179,7 @@ const FORMATTING_RULES = `Formatting rules — your output is rendered through a
 
 class MissingApiKeyError extends Error {
   constructor() {
-    super('No Anthropic API key configured. Add one in Settings.')
+    super('No Anthropic API key configured. Add one in Settings or upgrade to Pro.')
     this.name = 'MissingApiKeyError'
   }
 }
@@ -191,7 +192,47 @@ function getAnthropicClient(): Anthropic {
 
 export { MissingApiKeyError }
 
+/**
+ * Stream the body of a server proxy response (plain UTF-8 chunks, no SSE
+ * framing) into the existing onChunk callback. Throws on non-OK status so
+ * callers can handle 402 / 401 the same way as MissingApiKeyError.
+ */
+async function streamProxyResponse(
+  url: string,
+  body: unknown,
+  onChunk: (text: string) => void
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (res.status === 402) throw new MissingApiKeyError()
+  if (!res.ok) throw new Error(`proxy ${res.status}: ${await res.text()}`)
+  if (!res.body) throw new Error('proxy returned empty body')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    if (value) onChunk(decoder.decode(value, { stream: true }))
+  }
+}
+
 export async function evaluateAnswer(req: EvaluateAnswerRequest): Promise<EvaluateAnswerResponse> {
+  // Pro users go through the server proxy so they don't need their own key.
+  if (getCurrentTier() === 'pro') {
+    return authedPost<EvaluateAnswerResponse>('/api/evaluate', req)
+  }
+
   const client = getAnthropicClient()
   const response = await client.messages.create({
     model: EVAL_MODEL,
@@ -229,6 +270,11 @@ export async function streamChat(
   conceptContext: string,
   onChunk: (text: string) => void,
 ): Promise<void> {
+  if (getCurrentTier() === 'pro') {
+    await streamProxyResponse('/api/chat', { messages, context: conceptContext }, onChunk)
+    return
+  }
+
   const client = getAnthropicClient()
   const systemPrompt = `You are a helpful tutor helping a student revise for their university exams.
 You are currently helping them learn about a specific concept. Use the context below to ground your answers
@@ -295,6 +341,18 @@ export async function streamSourceChat(
   chunks: SourceChunk[],
   onChunk: (text: string) => void,
 ): Promise<void> {
+  if (getCurrentTier() === 'pro') {
+    // Server only needs the fields it'll embed in the system prompt.
+    const slim = chunks.map((c) => ({
+      source_code: c.source_code,
+      source_type: c.source_type,
+      position_label: c.position_label,
+      chunk_text: c.chunk_text,
+    }))
+    await streamProxyResponse('/api/source-chat', { messages, chunks: slim }, onChunk)
+    return
+  }
+
   const client = getAnthropicClient()
 
   const sources = chunks

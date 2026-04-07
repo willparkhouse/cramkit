@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AuthProvider, useAuth } from '@/lib/auth'
+import { SubscriptionProvider } from '@/lib/subscription'
 import { SetupProvider, useSetup, hasSeenFirstTimeSetup } from '@/lib/setupContext'
 import { ThemeProvider } from '@/lib/theme'
 import { AppShell } from '@/components/layout/AppShell'
@@ -100,9 +101,11 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <SetupProvider>
-            <AuthGate />
-          </SetupProvider>
+          <SubscriptionProvider>
+            <SetupProvider>
+              <AuthGate />
+            </SetupProvider>
+          </SubscriptionProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

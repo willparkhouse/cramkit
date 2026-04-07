@@ -2,16 +2,32 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { useSubscription } from '@/lib/subscription'
+import { startCheckout, openCustomerPortal } from '@/lib/billing'
 import { getApiKey, setApiKey, syncApiKeyToProfile, isValidKeyFormat } from '@/lib/apiKey'
-import { CheckCircle, AlertCircle, Loader2, ExternalLink, LogOut, Eye, EyeOff } from 'lucide-react'
+import { CheckCircle, AlertCircle, Loader2, ExternalLink, LogOut, Eye, EyeOff, Sparkles } from 'lucide-react'
 
 export function SettingsPage() {
   const { user, signOut } = useAuth()
+  const { tier, status, currentPeriodEnd, loading: subLoading } = useSubscription()
   const [keyInput, setKeyInput] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [billingBusy, setBillingBusy] = useState(false)
+  const [billingErr, setBillingErr] = useState<string | null>(null)
+
+  const onUpgrade = async () => {
+    setBillingErr(null)
+    setBillingBusy(true)
+    try { await startCheckout() } catch (e) { setBillingErr((e as Error).message); setBillingBusy(false) }
+  }
+  const onManage = async () => {
+    setBillingErr(null)
+    setBillingBusy(true)
+    try { await openCustomerPortal() } catch (e) { setBillingErr((e as Error).message); setBillingBusy(false) }
+  }
 
   useEffect(() => {
     const existing = getApiKey()
@@ -66,6 +82,52 @@ export function SettingsPage() {
             <LogOut className="mr-2 h-4 w-4" />
             Sign out
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Subscription */}
+      <Card className="gap-0 py-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            Subscription
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {subLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : tier === 'pro' ? (
+            <>
+              <div className="text-sm">
+                <div className="font-medium">Pro</div>
+                <div className="text-muted-foreground text-xs mt-0.5">
+                  Status: {status ?? 'active'}
+                  {currentPeriodEnd && (
+                    <> · renews {new Date(currentPeriodEnd).toLocaleDateString()}</>
+                  )}
+                </div>
+                <div className="text-muted-foreground text-xs mt-2">
+                  All AI features run through cramkit's Anthropic key — no setup needed.
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={onManage} disabled={billingBusy}>
+                {billingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Manage subscription'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="text-sm space-y-2">
+                <div className="font-medium">Free</div>
+                <p className="text-muted-foreground text-xs">
+                  Unlock the AI features (quiz answer eval, "Why?" chat, source-grounded chat) by either pasting your own Anthropic API key below, or upgrading to Pro for £10/month — no key faff, just works.
+                </p>
+              </div>
+              <Button size="sm" onClick={onUpgrade} disabled={billingBusy}>
+                {billingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Upgrade to Pro — £10/mo'}
+              </Button>
+            </>
+          )}
+          {billingErr && <div className="text-xs text-destructive">{billingErr}</div>}
         </CardContent>
       </Card>
 

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useSetup } from '@/lib/setupContext'
+import { startCheckout } from '@/lib/billing'
 import { getApiKey, setApiKey, syncApiKeyToProfile, isValidKeyFormat } from '@/lib/apiKey'
 import {
   ExternalLink,
@@ -95,22 +96,25 @@ export function SetupWizard() {
                 </div>
               </button>
 
-              {/* Stripe (disabled) */}
-              <div className="w-full border rounded-lg p-4 opacity-60 cursor-not-allowed">
+              {/* Stripe upgrade */}
+              <button
+                onClick={() => { void startCheckout() }}
+                className="w-full text-left border rounded-lg p-4 hover:border-primary hover:bg-accent transition-colors"
+              >
                 <div className="flex items-start gap-3">
-                  <CreditCard className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                  <CreditCard className="h-5 w-5 text-primary mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium">cramkit subscription</span>
-                      <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+                      <span className="font-medium">Upgrade to Pro</span>
+                      <Badge variant="secondary" className="text-[10px]">£10/month</Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      £10/month, no API key needed. Unlimited quiz sessions and chat,
-                      billed via Stripe. Available shortly.
+                      No API key needed — cramkit handles everything. Unlimited quiz
+                      sessions and chat. Cancel anytime.
                     </p>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             {reason === 'first-time' && (
