@@ -35,6 +35,10 @@ const STORAGE_BUCKET = 'learning-materials'
 
 const SLIDES_PER_CHUNK = 3
 const SLIDE_OVERLAP = 1
+// Hard ceiling on chunk text length to stay under OpenAI's 8192-token embed
+// limit. Math- and symbol-heavy slides can hit ~1 char/token, so we cap at
+// 8000 chars to stay safe even in pathological cases.
+const MAX_CHUNK_CHARS = 8000
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -69,6 +73,9 @@ async function extractPages(pdfBytes: Uint8Array): Promise<SlidePage[]> {
       // pdfjs TextItem objects have a `str` field
       .map((item) => ('str' in item ? (item as { str: string }).str : ''))
       .join(' ')
+      // Strip NULs and other C0 control chars — Postgres text rejects \u0000,
+      // and pdfjs occasionally emits them on slides with embedded fonts.
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
     pages.push({ pageNumber: i, text })
@@ -96,9 +103,12 @@ function chunkSlides(pages: SlidePage[]): Chunk[] {
   let chunkIndex = 0
   while (i < usable.length) {
     const window = usable.slice(i, i + SLIDES_PER_CHUNK)
-    const text = window
+    const rawText = window
       .map((p) => `[Slide ${p.pageNumber}] ${p.text}`)
       .join('\n')
+    const text = rawText.length > MAX_CHUNK_CHARS
+      ? rawText.slice(0, MAX_CHUNK_CHARS)
+      : rawText
     chunks.push({
       index: chunkIndex++,
       startPage: window[0].pageNumber,

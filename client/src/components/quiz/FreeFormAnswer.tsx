@@ -5,11 +5,11 @@ import { Loader2 } from 'lucide-react'
 
 interface FreeFormAnswerProps {
   onSubmit: (answer: string) => void
-  onSkip: () => void
+  onIdk: () => void
   loading: boolean
 }
 
-export function FreeFormAnswer({ onSubmit, onSkip, loading }: FreeFormAnswerProps) {
+export function FreeFormAnswer({ onSubmit, onIdk, loading }: FreeFormAnswerProps) {
   const [answer, setAnswer] = useState('')
 
   return (
@@ -24,7 +24,7 @@ export function FreeFormAnswer({ onSubmit, onSkip, loading }: FreeFormAnswerProp
       <div className="flex gap-2">
         <Button
           variant="outline"
-          onClick={onSkip}
+          onClick={onIdk}
           disabled={loading}
           className="shrink-0"
         >

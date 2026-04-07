@@ -67,6 +67,17 @@ export async function generateQuestions(req: GenerateQuestionsRequest): Promise<
 // Browser-side AI calls (BYOK — uses user's own Anthropic key)
 // ============================================================================
 
+/**
+ * Shared formatting rules appended to chat system prompts so the assistant
+ * produces output that our markdown renderer can actually display.
+ */
+const FORMATTING_RULES = `Formatting rules — your output is rendered through a markdown renderer with KaTeX math and GFM tables, so:
+- Wrap inline math in single dollar signs: $x^2 + y^2$. Wrap display math in double dollar signs on their own line: $$\\frac{1}{n} \\sum_i x_i$$.
+- NEVER put math inside backticks or code fences. Backticks are for actual code only.
+- For variables, equations, Greek letters, vectors, subscripts, superscripts, fractions, sums, integrals, etc — always use LaTeX in dollar signs.
+- Use proper markdown tables (with pipes) for tabular comparisons. Don't try to align columns with spaces.
+- Keep responses tight: short paragraphs, lists where appropriate, avoid horizontal rules unless genuinely separating sections.`
+
 class MissingApiKeyError extends Error {
   constructor() {
     super('No Anthropic API key configured. Add one in Settings.')
@@ -86,13 +97,19 @@ export async function evaluateAnswer(req: EvaluateAnswerRequest): Promise<Evalua
   const client = getAnthropicClient()
   const response = await client.messages.create({
     model: EVAL_MODEL,
-    max_tokens: 200,
-    system: `You are evaluating a student's exam answer. Be generous with partial credit.
-Return ONLY a JSON object: { "correct": boolean, "partial_credit": boolean, "feedback": "one sentence" }`,
+    max_tokens: 400,
+    system: `You are evaluating a university student's exam answer for them, in real time.
+
+Speak DIRECTLY to the student in second person ("you", "your answer") — never refer to them as "the student" or in third person. Be warm but honest, like a tutor giving quick feedback.
+
+Be generous with partial credit: if the student demonstrates partial understanding of the key idea, mark partial_credit true. If they got the gist right even with imperfect wording, mark correct true.
+
+Return ONLY a JSON object with this exact shape (no markdown, no code fences):
+{ "correct": boolean, "partial_credit": boolean, "feedback": "1-2 sentences addressing the student directly" }`,
     messages: [
       {
         role: 'user',
-        content: `Question: ${req.question}\nCorrect answer: ${req.correct_answer}\nStudent's answer: ${req.student_answer}`,
+        content: `Question: ${req.question}\nCorrect answer: ${req.correct_answer}\nMy answer: ${req.student_answer}`,
       },
     ],
   })
@@ -118,6 +135,8 @@ export async function streamChat(
   const systemPrompt = `You are a helpful tutor helping a student revise for their university exams.
 You are currently helping them learn about a specific concept. Use the context below to ground your answers
 in the actual course material. Be concise, clear, and focused on helping them understand.
+
+${FORMATTING_RULES}
 
 Context from course notes:
 ${conceptContext}`
@@ -190,6 +209,8 @@ export async function streamSourceChat(
 Ground your answers in these excerpts. When you reference something specific, cite it inline using the exact form [[CITE:N]] where N is the source number. You may cite multiple sources. Only cite sources that actually appear below — never invent citations.
 
 If the sources don't contain enough to answer, say so honestly rather than guessing.
+
+${FORMATTING_RULES}
 
 Sources:
 ${sources}`

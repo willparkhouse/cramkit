@@ -53,8 +53,8 @@ export function SettingsPage() {
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
       {/* Account */}
-      <Card>
-        <CardHeader>
+      <Card className="gap-0 py-4">
+        <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -70,8 +70,8 @@ export function SettingsPage() {
       </Card>
 
       {/* Anthropic API Key */}
-      <Card>
-        <CardHeader>
+      <Card className="gap-0 py-4">
+        <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Anthropic API Key</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -153,8 +153,8 @@ export function SettingsPage() {
       </Card>
 
       {/* Models */}
-      <Card>
-        <CardHeader>
+      <Card className="gap-0 py-4">
+        <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Models</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">

@@ -42,9 +42,9 @@ export function AppShell() {
     <div className="min-h-screen bg-background">
       {/* Desktop sidebar */}
       <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:w-60 md:flex-col border-r border-border bg-sidebar">
-        <div className="px-5 pt-3 pb-3 border-b border-sidebar-border">
+        <NavLink to="/" className="block px-5 pt-3 pb-3 hover:opacity-80 transition-opacity">
           <Logo className="w-full" />
-        </div>
+        </NavLink>
         <nav className="flex-1 space-y-1 p-3">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink

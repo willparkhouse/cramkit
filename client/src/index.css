@@ -121,6 +121,130 @@
 }
 
 /* ----------------------------------------------------------------------------
+ * Quiz answer animations
+ *
+ * fade-up: subtle slide-in for the review card's children, used to make the
+ *   transition from "answer the question" to "see how you did" feel smooth.
+ *
+ * answer-flash-correct / -wrong: brief border + bg pulse on the option the
+ *   user picked, fired when they submit. Lasts ~600ms.
+ *
+ * shake: gentle horizontal wobble used on the wrong-answer flash for a tiny
+ *   bit of "nope" feedback without being childish.
+ * ------------------------------------------------------------------------- */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+@keyframes answer-flash-correct {
+  0%   { box-shadow: 0 0 0 0 hsl(142 76% 50% / 0); }
+  30%  { box-shadow: 0 0 0 4px hsl(142 76% 50% / 0.4); }
+  100% { box-shadow: 0 0 0 0 hsl(142 76% 50% / 0); }
+}
+.animate-answer-correct {
+  animation: answer-flash-correct 0.7s ease-out;
+}
+
+@keyframes answer-flash-wrong {
+  0%   { box-shadow: 0 0 0 0 hsl(0 84% 60% / 0); transform: translateX(0); }
+  15%  { box-shadow: 0 0 0 4px hsl(0 84% 60% / 0.4); transform: translateX(-3px); }
+  30%  { transform: translateX(3px); }
+  45%  { transform: translateX(-2px); }
+  60%  { transform: translateX(2px); }
+  100% { box-shadow: 0 0 0 0 hsl(0 84% 60% / 0); transform: translateX(0); }
+}
+.animate-answer-wrong {
+  animation: answer-flash-wrong 0.7s ease-out;
+}
+
+/* ----------------------------------------------------------------------------
+ * Chat prose — overrides Tailwind Typography defaults for assistant messages
+ *
+ * The default `prose` styles are tuned for blog-post layouts with generous
+ * vertical rhythm. Inside a chat bubble that feels enormous — every <hr> gets
+ * a 2em margin, paragraphs are spaced like body copy, etc. This trims them
+ * to a more conversational density and adds light table styling.
+ * ------------------------------------------------------------------------- */
+.cramkit-chat-prose > :first-child { margin-top: 0; }
+.cramkit-chat-prose > :last-child  { margin-bottom: 0; }
+
+.cramkit-chat-prose p,
+.cramkit-chat-prose ul,
+.cramkit-chat-prose ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.cramkit-chat-prose h1,
+.cramkit-chat-prose h2,
+.cramkit-chat-prose h3,
+.cramkit-chat-prose h4 {
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  font-weight: 600;
+}
+
+.cramkit-chat-prose hr {
+  margin-top: 0.9em;
+  margin-bottom: 0.9em;
+  border-color: hsl(var(--color-border) / 0.5);
+  border-top-width: 1px;
+}
+
+.cramkit-chat-prose ul,
+.cramkit-chat-prose ol {
+  padding-left: 1.25em;
+}
+.cramkit-chat-prose li {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+.cramkit-chat-prose li > p { margin: 0; }
+
+/* Tables — borderless cells, alternating row tint, generous padding so
+   numeric data is legible. */
+.cramkit-chat-prose table {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9em;
+}
+.cramkit-chat-prose thead {
+  border-bottom: 1px solid var(--color-border);
+}
+.cramkit-chat-prose th,
+.cramkit-chat-prose td {
+  padding: 0.4em 0.6em;
+  text-align: left;
+  border: none;
+}
+.cramkit-chat-prose tbody tr:nth-child(odd) {
+  background-color: hsl(0 0% 50% / 0.06);
+}
+
+/* Code blocks — slightly tighter than default prose */
+.cramkit-chat-prose pre {
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+  padding: 0.6em 0.8em;
+  font-size: 0.85em;
+}
+.cramkit-chat-prose code {
+  font-size: 0.9em;
+}
+
+/* KaTeX display math — tighten the surrounding margins */
+.cramkit-chat-prose .katex-display {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+/* ----------------------------------------------------------------------------
  * Thin scrollbar utility — used for chat transcripts and other scroll areas
  * where the default browser scrollbar feels intrusive.
  * ------------------------------------------------------------------------- */

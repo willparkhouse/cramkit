@@ -128,7 +128,9 @@ export function useQuizSession(filters: QuizFilters) {
     [state.question, state.concept, updateKnowledge, markQuestionUsed, openSetup]
   )
 
-  const skip = useCallback(() => {
+  // "I don't know" — the user has given up on this question, so we mark it
+  // wrong (lowering their confidence score) and reveal the answer.
+  const idk = useCallback(() => {
     if (!state.question || !state.concept) return
     markQuestionUsed(state.question.id)
     updateKnowledge(state.concept.id, state.question.id, 'incorrect')
@@ -146,11 +148,28 @@ export function useQuizSession(filters: QuizFilters) {
     }))
   }, [state.question, state.concept, updateKnowledge, markQuestionUsed])
 
+  // "Skip" — this question isn't useful right now (e.g. near-duplicate of
+  // one I just answered, or a topic I'm not focusing on). We don't touch
+  // knowledge or mark the question used, so it can come back later. Just
+  // pull the next question immediately.
+  const skip = useCallback(() => {
+    const result = pickNextQuestion(filters)
+    setState((s) => ({
+      ...s,
+      concept: result?.concept || null,
+      question: result?.question || null,
+      feedback: null,
+      showFeedback: false,
+      userAnswer: null,
+    }))
+  }, [filters])
+
   return {
     ...state,
     nextQuestion,
     submitMCQ,
     submitFreeForm,
+    idk,
     skip,
   }
 }

@@ -5,12 +5,14 @@ import { daysSince } from '@/lib/utils'
 import type { Question, Concept } from '@/types'
 
 export type QuizMode = 'weakest' | 'untested' | 'mistakes' | 'spaced'
+export type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
 export interface QuizFilters {
   moduleId: string | null
   questionType: 'all' | 'mcq' | 'free_form'
   week: number | null
   mode: QuizMode
+  difficulty: DifficultyFilter
 }
 
 export function pickNextQuestion(filters: QuizFilters): { concept: Concept; question: Question } | null {
@@ -37,6 +39,17 @@ export function pickNextQuestion(filters: QuizFilters): { concept: Concept; ques
   // Filter questions by type
   if (filters.questionType !== 'all') {
     questions = questions.filter((q) => q.type === filters.questionType)
+  }
+
+  // Filter questions by difficulty band
+  // Easy = 1-2, Medium = 3, Hard = 4-5
+  if (filters.difficulty !== 'all') {
+    questions = questions.filter((q) => {
+      if (filters.difficulty === 'easy') return q.difficulty <= 2
+      if (filters.difficulty === 'medium') return q.difficulty === 3
+      if (filters.difficulty === 'hard') return q.difficulty >= 4
+      return true
+    })
   }
 
   if (questions.length === 0) return null

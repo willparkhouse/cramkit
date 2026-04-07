@@ -1,44 +1,91 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 interface MCQOptionsProps {
   options: string[]
+  correctAnswer: string
   onSubmit: (answer: string) => void
-  onSkip: () => void
+  onIdk: () => void
 }
 
-export function MCQOptions({ options, onSubmit, onSkip }: MCQOptionsProps) {
+/**
+ * Tile-style MCQ options. Click anywhere on a tile to select it.
+ *
+ * The visual shape (rounded boxes, 1.5 spacing, py-1.5 px-3) intentionally
+ * matches the read-only review state in QuizPage so the transition between
+ * "answering" and "reviewing" feels like the same UI lighting up rather
+ * than a hard re-render into a different layout.
+ */
+export function MCQOptions({ options, correctAnswer, onSubmit, onIdk }: MCQOptionsProps) {
   const [selected, setSelected] = useState<string>('')
+  const [submitted, setSubmitted] = useState<string | null>(null)
+
+  // Once submitted, briefly preview the result before letting the parent
+  // swap us out for the review card. ~650ms matches the answer-flash
+  // keyframe duration.
+  const handleSubmit = () => {
+    if (!selected || submitted) return
+    setSubmitted(selected)
+    setTimeout(() => onSubmit(selected), 650)
+  }
+
+  const isLocked = submitted !== null
 
   return (
-    <div className="space-y-4">
-      <RadioGroup value={selected} onValueChange={setSelected}>
-        {options.map((option, i) => (
-          <div key={i} className="flex items-center space-x-3">
-            <RadioGroupItem value={option} id={`option-${i}`} />
-            <label
-              htmlFor={`option-${i}`}
-              className="text-sm font-medium leading-relaxed cursor-pointer flex-1"
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        {options.map((option, i) => {
+          const isCorrect = option.trim().toLowerCase() === correctAnswer.trim().toLowerCase()
+          const isPicked = submitted === option
+          const isSelected = selected === option
+
+          // Borderless tiles — background colour does the delimiting.
+          // Tile shape matches the review state exactly.
+          let className = 'w-full text-left rounded-md px-3 py-1.5 text-sm transition-colors duration-200 cursor-pointer '
+
+          if (isLocked) {
+            // After submission: picked tile flashes green or red, the correct
+            // tile (if the user picked wrong) also lights up green.
+            if (isPicked && isCorrect) {
+              className += 'animate-answer-correct bg-green-100 text-green-900 font-medium dark:bg-green-950/60 dark:text-green-300'
+            } else if (isPicked && !isCorrect) {
+              className += 'animate-answer-wrong bg-red-100 text-red-900 dark:bg-red-950/60 dark:text-red-300'
+            } else if (isCorrect) {
+              className += 'bg-green-100 text-green-900 font-medium dark:bg-green-950/60 dark:text-green-300'
+            } else {
+              className += 'bg-muted/40 text-muted-foreground'
+            }
+          } else if (isSelected) {
+            className += 'bg-primary/15 text-foreground'
+          } else {
+            className += 'bg-muted/40 text-foreground hover:bg-muted'
+          }
+
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={isLocked}
+              onClick={() => setSelected(option)}
+              className={className}
             >
               {option}
-            </label>
-          </div>
-        ))}
-      </RadioGroup>
+            </button>
+          )
+        })}
+      </div>
       <div className="flex gap-2">
         <Button
           variant="outline"
-          onClick={onSkip}
+          onClick={onIdk}
+          disabled={isLocked}
           className="shrink-0"
         >
           I don't know
         </Button>
         <Button
-          onClick={() => {
-            if (selected) onSubmit(selected)
-          }}
-          disabled={!selected}
+          onClick={handleSubmit}
+          disabled={!selected || isLocked}
           className="flex-1"
         >
           Submit Answer
