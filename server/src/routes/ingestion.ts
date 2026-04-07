@@ -302,6 +302,7 @@ QUESTION STYLE:
 - Frame these as a "litmus test" — does the student understand what was actually taught? Not as exam practice, not as gotchas.
 - Mix recall and light application, but stay within the level of detail in the chunks.
 - Roughly 60% MCQ (exactly 4 options, one correct) and 40% free-form (with a model answer).
+- For MCQ: "correct_answer" MUST be the FULL TEXT of the correct option, character-for-character identical to one of the entries in "options". Never return just a letter like "A".
 - Aim for 4-8 questions total for this concept, scaled to how much material the chunks actually cover. Quality over quantity.
 - Difficulty 1-5 where 1 is direct recall and 5 requires connecting multiple ideas from the chunks.
 
@@ -312,8 +313,8 @@ Return ONLY a JSON object (no markdown):
       "type": "mcq",
       "difficulty": 2,
       "question": "...",
-      "options": ["A","B","C","D"],
-      "correct_answer": "A",
+      "options": ["full text of option A", "full text of option B", "full text of option C", "full text of option D"],
+      "correct_answer": "full text of option A",
       "explanation": "...",
       "evidence_quote": "verbatim substring from a chunk"
     }
@@ -366,6 +367,12 @@ ${chunkBlock}`
       dropped++
       continue
     }
+    // Required-field guard: Claude occasionally omits correct_answer or question.
+    if (typeof q.question !== 'string' || !q.question.trim()) { dropped++; continue }
+    if (typeof q.correct_answer !== 'string' || !q.correct_answer.trim()) { dropped++; continue }
+    if (q.type !== 'mcq' && q.type !== 'free_form') { dropped++; continue }
+    if (q.type === 'mcq' && (!Array.isArray(q.options) || q.options.length < 2)) { dropped++; continue }
+    if (q.type === 'mcq' && !q.options!.includes(q.correct_answer)) { dropped++; continue }
     const needle = normaliseForMatch(q.evidence_quote)
     if (needle.length < 10) {
       dropped++

@@ -4,7 +4,7 @@ _Last updated: 7 April 2026_
 
 These terms govern your use of cramkit, a revision tool for university exam preparation. By creating an account or using the service, you agree to these terms. If you do not agree, do not use the service.
 
-cramkit is operated by **William Parkhouse**, a sole trader based in the United Kingdom (referred to here as "we", "us", or "cramkit"). You can contact us at **hello@cramkit.app**.
+cramkit is operated by **William Parkhouse**, a sole trader based in the United Kingdom (referred to here as "we", "us", or "cramkit"). You can contact us at **wjdparkhouse@gmail.com**.
 
 These terms are governed by the laws of England and Wales, and any disputes will be subject to the exclusive jurisdiction of the courts of England and Wales.
 
@@ -49,7 +49,7 @@ In both cases, the AI providers may temporarily process and log your inputs in l
 
 cramkit indexes lecture recordings and slide decks so you can find specific moments quickly. We do not host the underlying recordings or slide content where it is reasonable to link directly to the original source (e.g. Panopto recordings, Canvas slide decks). Where we have stored extracted text or PDFs to support search, we have done so with the intention of helping students who already have legitimate access to the original material.
 
-If you are a copyright holder and want material removed, please contact us at **hello@cramkit.app** and we will act within a reasonable time.
+If you are a copyright holder and want material removed, please contact us at **wjdparkhouse@gmail.com** and we will act within a reasonable time.
 
 You may not redistribute material retrieved through cramkit, in whole or in part, to anyone who does not have legitimate access through the original source.
 
@@ -57,7 +57,7 @@ You may not redistribute material retrieved through cramkit, in whole or in part
 
 The managed plan costs **£10 per month**, billed via Stripe. Your subscription renews automatically each month until you cancel. You can cancel at any time from your account settings; cancellation takes effect at the end of your current billing period and you retain access until then.
 
-**Refund policy.** You can request a full refund within **14 days** of any payment, no questions asked. After 14 days, we don't offer refunds for past months, but you can still cancel at any time to avoid future charges. To request a refund, email **hello@cramkit.app** from the address on your account.
+**Refund policy.** You can request a full refund within **14 days** of any payment, no questions asked. After 14 days, we don't offer refunds for past months, but you can still cancel at any time to avoid future charges. To request a refund, email **wjdparkhouse@gmail.com** from the address on your account.
 
 We may change pricing for future billing periods with at least 14 days' notice. You can cancel before the new price takes effect if you don't agree with the change.
 
@@ -85,4 +85,4 @@ We may update these terms from time to time. If we make material changes, we wil
 
 ---
 
-If you have any questions about these terms, email **hello@cramkit.app**.
+If you have any questions about these terms, email **wjdparkhouse@gmail.com**.

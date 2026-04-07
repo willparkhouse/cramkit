@@ -4,7 +4,7 @@ _Last updated: 7 April 2026_
 
 This policy explains what data cramkit collects, why, and what we do with it.
 
-cramkit is operated by **William Parkhouse**, a sole trader based in the United Kingdom. The data controller is William Parkhouse. You can contact us at **hello@cramkit.app**.
+cramkit is operated by **William Parkhouse**, a sole trader based in the United Kingdom. The data controller is William Parkhouse. You can contact us at **wjdparkhouse@gmail.com**.
 
 ---
 
@@ -75,7 +75,7 @@ You have the right to:
 - **Object** to processing in certain circumstances
 - **Withdraw consent** where we rely on consent (you can do this at any time by deleting your account)
 
-To exercise any of these rights, email **hello@cramkit.app** from the address on your account. We'll respond within 30 days.
+To exercise any of these rights, email **wjdparkhouse@gmail.com** from the address on your account. We'll respond within 30 days.
 
 You also have the right to lodge a complaint with the UK Information Commissioner's Office (ICO) if you think we've handled your data unlawfully: [ico.org.uk](https://ico.org.uk).
 
@@ -93,4 +93,4 @@ If we change this policy in a way that materially affects how we handle your dat
 
 ---
 
-Questions? Email **hello@cramkit.app**.
+Questions? Email **wjdparkhouse@gmail.com**.
