@@ -14,6 +14,7 @@ import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
 import { ModulesPage } from '@/components/modules/ModulesPage'
+import { LegalPage } from '@/components/legal/LegalPage'
 import { hydrateStore } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
 import { useAppStore } from '@/store/useAppStore'
@@ -49,6 +50,8 @@ function ProtectedApp() {
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/search" element={<MaterialSearchPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/terms" element={<LegalPage doc="terms" />} />
+          <Route path="/privacy" element={<LegalPage doc="privacy" />} />
 
           {/* Admin-only routes */}
           {isAdmin && <Route path="/ingest" element={<IngestionPage />} />}
@@ -76,6 +79,10 @@ function AuthGate() {
   if (!session) {
     return (
       <Routes>
+        {/* Legal pages must be reachable while logged out — payment flows
+            and app-store listings will link to them. */}
+        <Route path="/terms" element={<LegalPage doc="terms" />} />
+        <Route path="/privacy" element={<LegalPage doc="privacy" />} />
         <Route path="*" element={<LoginPage />} />
       </Routes>
     )

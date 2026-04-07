@@ -136,15 +136,21 @@ export function LoginPage() {
         <p className="text-xs text-muted-foreground">
           Built for May 2026 exams · BYOK Anthropic for AI features
         </p>
-        <a
-          href="https://github.com/willparkhouse/cramkit"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <GithubIcon className="h-3 w-3" />
-          Open source on GitHub
-        </a>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <a
+            href="https://github.com/willparkhouse/cramkit"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
+          >
+            <GithubIcon className="h-3 w-3" />
+            GitHub
+          </a>
+          <span>·</span>
+          <a href="/terms" className="hover:text-foreground transition-colors">Terms</a>
+          <span>·</span>
+          <a href="/privacy" className="hover:text-foreground transition-colors">Privacy</a>
+        </div>
       </footer>
     </div>
   )

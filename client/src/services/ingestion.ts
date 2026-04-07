@@ -1,5 +1,6 @@
 import * as api from '@/lib/api'
 import { useAppStore } from '@/store/useAppStore'
+import { MODULE_RAG_SLUGS } from '@/lib/constants'
 import type { Concept, Question } from '@/types'
 import type { UploadedFile } from '@/components/ingestion/FileUploader'
 
@@ -134,6 +135,7 @@ export async function generateAllQuestions(
 
   async function processOne(concept: Concept) {
     const exam = store.exams.find((e) => concept.module_ids.includes(e.id))
+    const moduleSlug = exam ? MODULE_RAG_SLUGS[exam.name] : undefined
 
     const result = await api.generateQuestions({
       concepts: [{
@@ -143,6 +145,7 @@ export async function generateAllQuestions(
         difficulty: concept.difficulty,
       }],
       module_name: exam?.name || 'General',
+      module: moduleSlug,
     })
 
     const questionRows: Partial<Question>[] = []
@@ -158,6 +161,9 @@ export async function generateAllQuestions(
           explanation: q.explanation,
           source: 'batch',
           times_used: 0,
+          is_past_paper: false,
+          source_chunk_ids: q.source_chunk_ids ?? [],
+          evidence_quote: q.evidence_quote ?? null,
         })
       }
     }
@@ -212,6 +218,7 @@ export async function retryFailedQuestions(
   for (const concept of missing) {
     callbacks.onProgress(completed, total, concept.name)
     const exam = store.exams.find((e) => concept.module_ids.includes(e.id))
+    const moduleSlug = exam ? MODULE_RAG_SLUGS[exam.name] : undefined
 
     try {
       const result = await api.generateQuestions({
@@ -222,6 +229,7 @@ export async function retryFailedQuestions(
           difficulty: concept.difficulty,
         }],
         module_name: exam?.name || 'General',
+        module: moduleSlug,
       })
 
       const questionRows: Partial<Question>[] = []
@@ -237,6 +245,9 @@ export async function retryFailedQuestions(
             explanation: q.explanation,
             source: 'batch',
             times_used: 0,
+            is_past_paper: false,
+            source_chunk_ids: q.source_chunk_ids ?? [],
+            evidence_quote: q.evidence_quote ?? null,
           })
         }
       }

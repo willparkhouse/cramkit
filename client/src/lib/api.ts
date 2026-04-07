@@ -419,6 +419,9 @@ export async function saveQuestions(questions: Partial<Question>[]): Promise<Que
     explanation: q.explanation || null,
     source: q.source || 'batch',
     times_used: q.times_used || 0,
+    is_past_paper: q.is_past_paper ?? false,
+    source_chunk_ids: q.source_chunk_ids ?? [],
+    evidence_quote: q.evidence_quote ?? null,
   }))
 
   const { data, error } = await supabase.from('questions').insert(rows).select()

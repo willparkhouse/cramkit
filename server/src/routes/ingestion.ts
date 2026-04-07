@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
 import { requireAuth, requireAdmin } from '../lib/auth.js'
+import { retrieveChunks, type MatchedChunk } from '../lib/retrieval.js'
 
 const app = new Hono()
 
@@ -237,9 +238,175 @@ IMPORTANT: Your response must be valid JSON. Do not truncate the output.`,
   }
 })
 
-// Generate questions for concepts
+// Normalise text for substring matching: collapse whitespace, lowercase.
+function normaliseForMatch(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+interface GeneratedQuestion {
+  type: 'mcq' | 'free_form'
+  difficulty: number
+  question: string
+  options: string[] | null
+  correct_answer: string
+  explanation: string
+  evidence_quote: string
+}
+
+// Generate questions for a single concept, grounded in retrieved source chunks.
+async function generateForConcept(
+  concept: { name: string; description: string; key_facts: string[]; difficulty: number },
+  moduleSlug: string | undefined
+): Promise<{
+  concept_name: string
+  questions: (GeneratedQuestion & { source_chunk_ids: string[] })[]
+  retrieved_chunk_ids: string[]
+  dropped: number
+}> {
+  // Build a richer retrieval query than just the concept name.
+  const query = `${concept.name}. ${concept.description}. ${concept.key_facts.slice(0, 5).join('. ')}`
+  let chunks: MatchedChunk[] = []
+  try {
+    chunks = await retrieveChunks({
+      query,
+      module: moduleSlug,
+      matchCount: 6,
+    })
+  } catch (e) {
+    console.error(`retrieveChunks failed for "${concept.name}":`, (e as Error).message)
+  }
+
+  if (chunks.length === 0) {
+    console.warn(`No source chunks for concept "${concept.name}" — skipping question generation`)
+    return { concept_name: concept.name, questions: [], retrieved_chunk_ids: [], dropped: 0 }
+  }
+
+  const chunkBlock = chunks
+    .map((ch, i) => `[CHUNK ${i + 1}] (source: ${ch.source_code}, ${ch.source_type})\n${ch.chunk_text}`)
+    .join('\n\n---\n\n')
+
+  const systemPrompt = `You are writing low-stakes self-test questions to help a student check their understanding of a university course concept.
+
+You will be given:
+1. A concept (name, description, key facts) extracted from the student's notes
+2. A set of SOURCE CHUNKS from the actual course material (lecture slides, transcripts)
+
+STRICT GROUNDING RULES:
+- Every question MUST be directly answerable from the SOURCE CHUNKS alone.
+- Do NOT use any outside knowledge, textbook facts, or details that are not present in the chunks — even if they're "standard" for the topic.
+- If a key fact in the concept is NOT supported by any chunk, do not write a question about it.
+- For each question, you MUST include an "evidence_quote": a literal substring (5-30 words) copied verbatim from one of the SOURCE CHUNKS that justifies the correct answer. The substring must appear character-for-character in a chunk.
+- If you cannot find verbatim evidence in the chunks for a question idea, DROP that question. It is far better to return 0 questions than to invent.
+
+QUESTION STYLE:
+- Frame these as a "litmus test" — does the student understand what was actually taught? Not as exam practice, not as gotchas.
+- Mix recall and light application, but stay within the level of detail in the chunks.
+- Roughly 60% MCQ (exactly 4 options, one correct) and 40% free-form (with a model answer).
+- Aim for 4-8 questions total for this concept, scaled to how much material the chunks actually cover. Quality over quantity.
+- Difficulty 1-5 where 1 is direct recall and 5 requires connecting multiple ideas from the chunks.
+
+Return ONLY a JSON object (no markdown):
+{
+  "questions": [
+    {
+      "type": "mcq",
+      "difficulty": 2,
+      "question": "...",
+      "options": ["A","B","C","D"],
+      "correct_answer": "A",
+      "explanation": "...",
+      "evidence_quote": "verbatim substring from a chunk"
+    }
+  ]
+}`
+
+  const userContent = `CONCEPT
+Name: ${concept.name}
+Description: ${concept.description}
+Key facts: ${concept.key_facts.join('; ')}
+
+SOURCE CHUNKS
+
+${chunkBlock}`
+
+  const response = await withRetry(() => anthropic.messages.create({
+    model: SONNET_MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }],
+  }))
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    console.warn(`No JSON in question gen response for "${concept.name}"`)
+    return { concept_name: concept.name, questions: [], retrieved_chunk_ids: chunks.map(c => c.chunk_id), dropped: 0 }
+  }
+
+  let parsed: { questions?: GeneratedQuestion[] }
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    console.warn(`Invalid JSON for "${concept.name}"`)
+    return { concept_name: concept.name, questions: [], retrieved_chunk_ids: chunks.map(c => c.chunk_id), dropped: 0 }
+  }
+
+  const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : []
+
+  // Validate evidence_quote actually appears in one of the chunks.
+  const normalisedChunks = chunks.map(ch => ({
+    id: ch.chunk_id,
+    text: normaliseForMatch(ch.chunk_text),
+  }))
+
+  const validated: (GeneratedQuestion & { source_chunk_ids: string[] })[] = []
+  let dropped = 0
+  for (const q of rawQuestions) {
+    if (!q || typeof q.evidence_quote !== 'string' || !q.evidence_quote.trim()) {
+      dropped++
+      continue
+    }
+    const needle = normaliseForMatch(q.evidence_quote)
+    if (needle.length < 10) {
+      dropped++
+      continue
+    }
+    const matchingChunkIds = normalisedChunks
+      .filter(ch => ch.text.includes(needle))
+      .map(ch => ch.id)
+    if (matchingChunkIds.length === 0) {
+      dropped++
+      continue
+    }
+    validated.push({
+      ...q,
+      // Order: matching chunks first, then the rest of the retrieved set as supporting context.
+      source_chunk_ids: [
+        ...matchingChunkIds,
+        ...chunks.map(c => c.chunk_id).filter(id => !matchingChunkIds.includes(id)),
+      ],
+    })
+  }
+
+  if (dropped > 0) {
+    console.log(`Concept "${concept.name}": kept ${validated.length}, dropped ${dropped} for missing/invalid evidence`)
+  }
+
+  return {
+    concept_name: concept.name,
+    questions: validated,
+    retrieved_chunk_ids: chunks.map(c => c.chunk_id),
+    dropped,
+  }
+}
+
+// Generate questions for concepts (per-concept RAG-grounded)
 app.post('/generate-questions', async (c) => {
-  const { concepts, exam_paper_excerpt, module_name } = await c.req.json()
+  const { concepts, module_name, module } = await c.req.json() as {
+    concepts: { name: string; description: string; key_facts: string[]; difficulty: number }[]
+    module_name?: string
+    module?: string
+  }
   if (!Array.isArray(concepts)) {
     return c.json({ error: 'concepts array required' }, 400)
   }
@@ -247,80 +414,26 @@ app.post('/generate-questions', async (c) => {
     return c.json({ error: `too many concepts in one batch (max ${MAX_GENERATE_CONCEPTS})` }, 413)
   }
 
-  let systemPrompt = `You are generating quiz questions for university exam revision.
-For each concept, generate an appropriate number of questions based on its complexity:
-- Concepts with few key facts (1-3): generate 2-3 questions
-- Concepts with moderate key facts (4-6): generate 4-6 questions
-- Concepts with many key facts (7+): generate 7-10 questions
-- Higher difficulty concepts should get more questions, especially at varying difficulty levels
-
-Mix approximately 60% multiple choice (MCQ) and 40% free-form questions.
-For MCQ questions, provide exactly 4 options where only one is correct.
-For free-form questions, provide a model answer.
-Vary question difficulty — include some easy recall AND some that require deeper understanding or application.`
-
-  if (exam_paper_excerpt) {
-    systemPrompt += `\n\nHere's an example of the exam style to match:\n${exam_paper_excerpt}`
+  // Run with limited concurrency to avoid hammering OpenAI + Anthropic + Supabase.
+  const CONCURRENCY = 3
+  const results: Awaited<ReturnType<typeof generateForConcept>>[] = []
+  for (let i = 0; i < concepts.length; i += CONCURRENCY) {
+    const batch = concepts.slice(i, i + CONCURRENCY)
+    const batchResults = await Promise.all(batch.map(co => generateForConcept(co, module)))
+    results.push(...batchResults)
   }
 
-  systemPrompt += `\n\nReturn ONLY a JSON object:
-{
-  "questions": [
-    {
-      "concept_name": "Concept Name",
-      "questions": [
-        {
-          "type": "mcq",
-          "difficulty": 2,
-          "question": "What is...?",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
-          "correct_answer": "Option A",
-          "explanation": "Brief explanation of why this is correct"
-        },
-        {
-          "type": "free_form",
-          "difficulty": 4,
-          "question": "Explain how...",
-          "options": null,
-          "correct_answer": "Model answer text",
-          "explanation": "Key points that a good answer should cover"
-        }
-      ]
-    }
-  ]
-}`
-
-  const conceptsText = concepts
-    .map(
-      (c: { name: string; description: string; key_facts: string[]; difficulty: number }) =>
-        `Concept: ${c.name}\nDescription: ${c.description}\nKey Facts (${c.key_facts.length}): ${c.key_facts.join('; ')}\nDifficulty: ${c.difficulty}`
-    )
-    .join('\n\n')
-
-  const response = await withRetry(() => anthropic.messages.create({
-    model: SONNET_MODEL,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Generate questions for these concepts from ${module_name}:\n\n${conceptsText}`,
-      },
-    ],
+  // Reshape to match the existing client contract: { questions: [{ concept_name, questions: [...] }] }
+  const out = results.map(r => ({
+    concept_name: r.concept_name,
+    questions: r.questions,
   }))
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    return c.json({ error: 'Failed to parse questions response' }, 500)
-  }
+  const totalKept = results.reduce((s, r) => s + r.questions.length, 0)
+  const totalDropped = results.reduce((s, r) => s + r.dropped, 0)
+  console.log(`generate-questions[${module_name ?? module ?? '?'}]: ${totalKept} kept, ${totalDropped} dropped across ${concepts.length} concepts`)
 
-  try {
-    const parsed = JSON.parse(jsonMatch[0])
-    return c.json(parsed)
-  } catch {
-    return c.json({ error: 'Invalid JSON in questions response' }, 500)
-  }
+  return c.json({ questions: out })
 })
 
 export default app

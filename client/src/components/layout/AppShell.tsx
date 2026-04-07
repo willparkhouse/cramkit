@@ -65,18 +65,25 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-sidebar-border flex items-center justify-between">
-          <a
-            href="https://github.com/willparkhouse/cramkit"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
-            title="View source on GitHub"
-          >
-            <GithubIcon className="h-3.5 w-3.5" />
-            GitHub
-          </a>
-          <ThemeToggle />
+        <div className="p-3 border-t border-sidebar-border space-y-2">
+          <div className="flex items-center justify-between">
+            <a
+              href="https://github.com/willparkhouse/cramkit"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+              title="View source on GitHub"
+            >
+              <GithubIcon className="h-3.5 w-3.5" />
+              GitHub
+            </a>
+            <ThemeToggle />
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground px-2">
+            <NavLink to="/terms" className="hover:text-foreground transition-colors">Terms</NavLink>
+            <span>·</span>
+            <NavLink to="/privacy" className="hover:text-foreground transition-colors">Privacy</NavLink>
+          </div>
         </div>
       </aside>
 

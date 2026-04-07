@@ -31,6 +31,9 @@ export interface Question {
   source: 'batch' | 'runtime'
   times_used: number
   created_at: string
+  is_past_paper?: boolean
+  source_chunk_ids?: string[]
+  evidence_quote?: string | null
 }
 
 export interface KnowledgeEntry {
@@ -96,14 +99,26 @@ export interface ExtractConceptsResponse {
 
 export interface GenerateQuestionsRequest {
   concepts: Pick<Concept, 'name' | 'description' | 'key_facts' | 'difficulty'>[]
-  exam_paper_excerpt?: string
   module_name: string
+  /** Module slug for the source-chunk RAG retrieval (e.g. "neuralcomp"). */
+  module?: string
+}
+
+export interface GeneratedQuestion {
+  type: 'mcq' | 'free_form'
+  difficulty: number
+  question: string
+  options: string[] | null
+  correct_answer: string
+  explanation: string
+  evidence_quote: string
+  source_chunk_ids: string[]
 }
 
 export interface GenerateQuestionsResponse {
   questions: {
     concept_name: string
-    questions: Omit<Question, 'id' | 'concept_id' | 'times_used' | 'created_at' | 'source'>[]
+    questions: GeneratedQuestion[]
   }[]
 }
 

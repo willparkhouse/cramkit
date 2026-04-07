@@ -13,6 +13,8 @@ export interface QuizFilters {
   week: number | null
   mode: QuizMode
   difficulty: DifficultyFilter
+  /** When true, past-paper questions are excluded from selection. Default true. */
+  excludePastPapers?: boolean
 }
 
 export function pickNextQuestion(filters: QuizFilters): { concept: Concept; question: Question } | null {
@@ -39,6 +41,13 @@ export function pickNextQuestion(filters: QuizFilters): { concept: Concept; ques
   // Filter questions by type
   if (filters.questionType !== 'all') {
     questions = questions.filter((q) => q.type === filters.questionType)
+  }
+
+  // Exclude past-paper questions unless the user has explicitly opted in.
+  // Default behaviour protects users who want to keep past papers unseen for a
+  // genuine mock attempt later.
+  if (filters.excludePastPapers !== false) {
+    questions = questions.filter((q) => !q.is_past_paper)
   }
 
   // Filter questions by difficulty band
