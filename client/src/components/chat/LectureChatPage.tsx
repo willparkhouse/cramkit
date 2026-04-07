@@ -4,28 +4,28 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  searchLectures,
-  streamLectureChat,
+  searchSources,
+  streamSourceChat,
   MissingApiKeyError,
-  type LectureChunk,
+  type SourceChunk,
 } from '@/lib/api'
 import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
-import { Send, Loader2, Video } from 'lucide-react'
+import { Send, Loader2, BookOpen } from 'lucide-react'
 import type { ChatMessage } from '@/types'
 
-interface LectureMessage extends ChatMessage {
+interface SourceMessage extends ChatMessage {
   // Cited chunks attached to assistant turns so [[CITE:n]] can be linkified
-  chunks?: LectureChunk[]
+  chunks?: SourceChunk[]
 }
 
 export function LectureChatPage() {
   const { openSetup } = useSetup()
-  const [messages, setMessages] = useState<LectureMessage[]>([
+  const [messages, setMessages] = useState<SourceMessage[]>([
     {
       role: 'assistant',
       content:
-        "Ask me anything about your lectures. I'll pull the relevant moments from the recordings and link you straight to them.",
+        "Ask me anything about your course material. I'll pull the most relevant moments from the lecture recordings and slide decks and link you straight to them.",
     },
   ])
   const [input, setInput] = useState('')
@@ -42,21 +42,21 @@ export function LectureChatPage() {
   const sendMessage = async () => {
     if (!input.trim() || streaming || retrieving) return
 
-    const userMessage: LectureMessage = { role: 'user', content: input.trim() }
+    const userMessage: SourceMessage = { role: 'user', content: input.trim() }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
 
-    // Step 1: retrieve relevant chunks
+    // Step 1: retrieve relevant chunks across lectures + slides
     setRetrieving(true)
-    let chunks: LectureChunk[] = []
+    let chunks: SourceChunk[] = []
     try {
-      chunks = await searchLectures(userMessage.content, 'neuralcomp')
+      chunks = await searchSources(userMessage.content, 'neuralcomp')
     } catch (err) {
-      console.error('Lecture search failed:', err)
+      console.error('Source search failed:', err)
       setMessages([
         ...newMessages,
-        { role: 'assistant', content: '[Error: failed to search lectures]' },
+        { role: 'assistant', content: '[Error: failed to search course material]' },
       ])
       setRetrieving(false)
       return
@@ -65,11 +65,11 @@ export function LectureChatPage() {
 
     // Step 2: stream Claude with the chunks as context
     setStreaming(true)
-    const assistantMessage: LectureMessage = { role: 'assistant', content: '', chunks }
+    const assistantMessage: SourceMessage = { role: 'assistant', content: '', chunks }
     setMessages([...newMessages, assistantMessage])
 
     try {
-      await streamLectureChat(newMessages, chunks, (delta) => {
+      await streamSourceChat(newMessages, chunks, (delta) => {
         assistantMessage.content += delta
         setMessages((prev) => [...prev.slice(0, -1), { ...assistantMessage }])
       })
@@ -92,8 +92,8 @@ export function LectureChatPage() {
   return (
     <div className="space-y-4 h-[calc(100vh-8rem)] md:h-[calc(100vh-4rem)] flex flex-col">
       <div className="flex items-center gap-2 shrink-0">
-        <Video className="h-5 w-5" />
-        <h1 className="text-2xl font-bold tracking-tight">Lecture chat</h1>
+        <BookOpen className="h-5 w-5" />
+        <h1 className="text-2xl font-bold tracking-tight">Course material chat</h1>
       </div>
 
       <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
@@ -139,7 +139,7 @@ export function LectureChatPage() {
             <div className="flex justify-start">
               <div className="bg-muted rounded-lg px-4 py-2 text-sm flex items-center gap-2">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Searching lectures…
+                Searching lectures and slides…
               </div>
             </div>
           )}
@@ -150,7 +150,7 @@ export function LectureChatPage() {
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about anything from the lectures…"
+          placeholder="Ask about anything from the lectures or slides…"
           rows={2}
           className="resize-none"
           onKeyDown={(e) => {

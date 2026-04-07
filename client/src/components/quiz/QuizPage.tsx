@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
 import { MODULE_SHORT_NAMES, MODULE_COLOURS, MODULE_RAG_SLUGS } from '@/lib/constants'
-import { streamChat, streamLectureChat, searchLectures, MissingApiKeyError, type LectureChunk } from '@/lib/api'
+import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
 import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
 import { QuestionCard } from './QuestionCard'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, ExternalLink, SlidersHorizontal, ChevronDown } from 'lucide-react'
+import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, FileText, ExternalLink, SlidersHorizontal, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import type { QuizFilters, QuizMode } from '@/services/quiz'
@@ -360,7 +360,7 @@ function ReviewAndFeedback({
   const [chatStreaming, setChatStreaming] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [showChat, setShowChat] = useState(false)
-  const [chunks, setChunks] = useState<LectureChunk[]>([])
+  const [chunks, setChunks] = useState<SourceChunk[]>([])
   const [retrieving, setRetrieving] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const { openSetup } = useSetup()
@@ -377,7 +377,7 @@ function ReviewAndFeedback({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
-  const sendMessage = useCallback(async (content: string, withChunks: LectureChunk[] = chunks) => {
+  const sendMessage = useCallback(async (content: string, withChunks: SourceChunk[] = chunks) => {
     if (chatStreaming) return
 
     const userMsg: ChatMessage = { role: 'user', content }
@@ -396,7 +396,7 @@ function ReviewAndFeedback({
 
     try {
       if (withChunks.length > 0) {
-        await streamLectureChat(newMessages, withChunks, onDelta)
+        await streamSourceChat(newMessages, withChunks, onDelta)
       } else {
         await streamChat(newMessages, conceptContext, onDelta)
       }
@@ -419,22 +419,22 @@ function ReviewAndFeedback({
 
     // If this concept's module has lecture transcripts, retrieve relevant
     // moments first so the chat is grounded and we can show timestamp links.
-    let retrievedChunks: LectureChunk[] = []
+    let retrievedChunks: SourceChunk[] = []
     if (ragModuleSlug) {
       setRetrieving(true)
       try {
         const query = `${concept.name}. ${question.question} ${question.correct_answer}`
-        retrievedChunks = await searchLectures(query, ragModuleSlug)
+        retrievedChunks = await searchSources(query, ragModuleSlug)
         setChunks(retrievedChunks)
       } catch (err) {
-        console.error('Lecture retrieval failed, falling back to concept context:', err)
+        console.error('Source retrieval failed, falling back to concept context:', err)
       } finally {
         setRetrieving(false)
       }
     }
 
     const initialQ = retrievedChunks.length > 0
-      ? `${failureFraming}\n\nExplain why the correct answer is right and why my answer was wrong. Cite the lecture sources where they support your explanation.`
+      ? `${failureFraming}\n\nExplain why the correct answer is right and why my answer was wrong. Cite the lecture or slide sources where they support your explanation.`
       : `I just got this question wrong. Please explain why the correct answer is right and why my answer was wrong. Be concise but thorough.`
     sendMessage(initialQ, retrievedChunks)
   }, [ragModuleSlug, concept.name, question.question, question.correct_answer, failureFraming, sendMessage])
@@ -551,44 +551,52 @@ function ReviewAndFeedback({
         </CardContent>
       </Card>
 
-      {/* Help panel: lecture moments + chat */}
+      {/* Help panel: course material citations + chat. All spacing is
+          uniform (gap of 3) so the visual rhythm matches throughout. */}
       {showChat && (
         <Card>
-          <CardContent className="py-3 space-y-3">
-            {/* Lecture moments */}
+          <CardContent className="p-3 flex flex-col gap-3">
+            {/* Source chips — lectures + slides merged */}
             {retrieving && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Searching lecture recordings…
+                Searching lectures and slides…
               </div>
             )}
             {chunks.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Video className="h-3 w-3" />
-                  Lecture moments
+              <div className="flex flex-col gap-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  From your course material
                 </div>
                 <div className="grid gap-1.5 grid-cols-1 sm:grid-cols-3">
-                  {chunks.slice(0, 3).map((c) => (
-                    <a
-                      key={c.chunk_id}
-                      href={c.deep_link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded-md border border-border bg-background px-2.5 py-2 text-[11px] hover:bg-muted transition-colors"
-                    >
-                      <div className="flex items-center justify-between gap-1 mb-0.5">
-                        <span className="font-medium truncate">{c.lecture_code} @ {c.timestamp_label}</span>
-                        <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                      </div>
-                      <p className="text-muted-foreground line-clamp-2 text-[10px]">{c.chunk_text}</p>
-                    </a>
-                  ))}
+                  {chunks.slice(0, 3).map((c) => {
+                    const SourceIcon = c.source_type === 'slides' ? FileText : Video
+                    const label = c.position_label
+                      ? `${c.source_code} ${c.source_type === 'lecture' ? '@ ' : ''}${c.position_label}`
+                      : c.source_code
+                    return (
+                      <a
+                        key={c.chunk_id}
+                        href={c.deep_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-md border border-border bg-background px-2.5 py-2 text-[11px] hover:bg-muted transition-colors"
+                      >
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <SourceIcon className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="font-medium truncate flex-1">{label}</span>
+                          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                        </div>
+                        <p className="text-muted-foreground line-clamp-2 text-[10px]">{c.chunk_text}</p>
+                      </a>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
-            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            {/* Chat transcript — taller scroll area, custom thin scrollbar */}
+            <div className="flex flex-col gap-3 max-h-[36rem] overflow-y-auto scrollbar-thin pr-2 -mr-2">
               {/* Hide the auto-sent opener (always the first user message) — its framing is for Claude, not the user. */}
               {chatMessages.slice(chatMessages[0]?.role === 'user' ? 1 : 0).map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -625,13 +633,14 @@ function ReviewAndFeedback({
               <div ref={chatEndRef} />
             </div>
 
-            <div className="flex gap-2">
+            {/* Input row — sits flush against the chat with the same gap-3 rhythm */}
+            <div className="flex gap-2 items-stretch">
               <Textarea
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask a follow-up..."
                 rows={1}
-                className="resize-none text-sm"
+                className="resize-none text-sm min-h-9 py-2"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
@@ -641,7 +650,7 @@ function ReviewAndFeedback({
               />
               <Button
                 size="icon"
-                className="shrink-0 self-end"
+                className="shrink-0 h-auto"
                 disabled={!chatInput.trim() || chatStreaming}
                 onClick={() => {
                   if (chatInput.trim()) sendMessage(chatInput.trim())

@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import ingestionRoutes from './routes/ingestion.js'
-import lectureRoutes from './routes/lectures.js'
+import sourceRoutes from './routes/sources.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -26,7 +26,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
 // API routes
 app.route('/api', ingestionRoutes)
-app.route('/api', lectureRoutes)
+app.route('/api', sourceRoutes)
 
 // Serve static client (for production deployment)
 const staticDir = join(__dirname, '..', 'public')

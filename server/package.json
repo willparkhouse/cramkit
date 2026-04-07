@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "ingest:transcripts": "tsx scripts/ingest-transcripts.ts"
+    "ingest:transcripts": "tsx scripts/ingest-transcripts.ts",
+    "ingest:slides": "tsx scripts/ingest-slides.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -14,7 +15,8 @@
     "@supabase/supabase-js": "^2.101.1",
     "dotenv": "^16.5.0",
     "hono": "^4.7.6",
-    "openai": "^4.77.0"
+    "openai": "^4.77.0",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

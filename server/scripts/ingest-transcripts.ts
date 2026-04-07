@@ -4,7 +4,7 @@
  * Reads data/transcripts/panopto.csv (lecture -> Panopto URL manifest) and
  * the matching nc{week}.{lecture}.txt files, splits them into ~60s chunks,
  * embeds them with OpenAI text-embedding-3-small, and upserts into the
- * `lectures` and `transcript_chunks` tables.
+ * unified `sources` + `source_chunks` tables (source_type='lecture').
  *
  * One-shot script. Re-running is idempotent (delete + reinsert per lecture).
  *
@@ -203,46 +203,46 @@ async function main() {
 
     if (chunks.length === 0) continue
 
-    // Upsert lecture row, get id
-    const { data: lectureRow, error: lecErr } = await supabase
-      .from('lectures')
+    // Upsert source row, get id
+    const { data: sourceRow, error: srcErr } = await supabase
+      .from('sources')
       .upsert(
         {
           module: row.module,
+          source_type: 'lecture',
           code,
           week: row.week,
           lecture: row.lecture,
-          panopto_url: row.url,
+          url: row.url,
         },
         { onConflict: 'code' }
       )
       .select('id')
       .single()
-    if (lecErr || !lectureRow) {
-      console.error(`  failed to upsert lecture ${code}:`, lecErr)
+    if (srcErr || !sourceRow) {
+      console.error(`  failed to upsert source ${code}:`, srcErr)
       continue
     }
-    const lectureId = lectureRow.id
+    const sourceId = sourceRow.id
 
-    // Wipe existing chunks for this lecture (idempotent re-runs)
-    await supabase.from('transcript_chunks').delete().eq('lecture_id', lectureId)
+    // Wipe existing chunks for this source (idempotent re-runs)
+    await supabase.from('source_chunks').delete().eq('source_id', sourceId)
 
     // Embed
     const embeddings = await embedAll(chunks.map((c) => c.text))
 
     // Bulk insert
     const rows = chunks.map((c, i) => ({
-      lecture_id: lectureId,
+      source_id: sourceId,
       chunk_index: c.index,
-      start_seconds: c.start,
-      end_seconds: c.end,
+      locator: { start_seconds: c.start, end_seconds: c.end },
       text: c.text,
       embedding: embeddings[i],
     }))
     const INSERT_BATCH = 100
     for (let i = 0; i < rows.length; i += INSERT_BATCH) {
       const batch = rows.slice(i, i + INSERT_BATCH)
-      const { error } = await supabase.from('transcript_chunks').insert(batch)
+      const { error } = await supabase.from('source_chunks').insert(batch)
       if (error) {
         console.error(`  insert failed for ${code}:`, error)
         break

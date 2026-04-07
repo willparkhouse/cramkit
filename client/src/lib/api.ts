@@ -140,34 +140,40 @@ ${conceptContext}`
 }
 
 // ============================================================================
-// Lecture RAG: retrieves transcript chunks from server, then streams Claude
-// in the browser (BYOK) with citation protocol [[CITE:n]].
+// Source RAG: retrieves chunks across lecture transcripts and slides from
+// the server, then streams Claude in the browser (BYOK) with citation
+// protocol [[CITE:n]].
 // ============================================================================
 
-export interface LectureChunk {
+export interface SourceChunk {
   chunk_id: string
-  lecture_code: string
+  source_code: string
+  source_type: 'lecture' | 'slides' | string
   module: string
-  panopto_url: string
-  start_seconds: number
-  end_seconds: number
+  url: string
+  locator: Record<string, unknown>
   chunk_text: string
   similarity: number
   deep_link: string
-  timestamp_label: string
+  position_label: string
 }
 
-export async function searchLectures(query: string, module?: string): Promise<LectureChunk[]> {
-  const { chunks } = await authedPost<{ chunks: LectureChunk[] }>('/api/lecture-search', {
+export async function searchSources(
+  query: string,
+  module?: string,
+  sourceTypes?: string[],
+): Promise<SourceChunk[]> {
+  const { chunks } = await authedPost<{ chunks: SourceChunk[] }>('/api/source-search', {
     query,
     module,
+    source_types: sourceTypes,
   })
   return chunks
 }
 
-export async function streamLectureChat(
+export async function streamSourceChat(
   messages: { role: string; content: string }[],
-  chunks: LectureChunk[],
+  chunks: SourceChunk[],
   onChunk: (text: string) => void,
 ): Promise<void> {
   const client = getAnthropicClient()
@@ -175,11 +181,11 @@ export async function streamLectureChat(
   const sources = chunks
     .map(
       (c, i) =>
-        `[${i + 1}] ${c.lecture_code} @ ${c.timestamp_label}\n${c.chunk_text}`
+        `[${i + 1}] (${c.source_type}) ${c.source_code} ${c.position_label}\n${c.chunk_text}`
     )
     .join('\n\n')
 
-  const systemPrompt = `You are a tutor helping a student revise. You have access to retrieved excerpts from their lecture recordings, listed below as numbered sources.
+  const systemPrompt = `You are a tutor helping a student revise. You have access to retrieved excerpts from their course materials — both lecture transcripts and slide decks — listed below as numbered sources.
 
 Ground your answers in these excerpts. When you reference something specific, cite it inline using the exact form [[CITE:N]] where N is the source number. You may cite multiple sources. Only cite sources that actually appear below — never invent citations.
 
