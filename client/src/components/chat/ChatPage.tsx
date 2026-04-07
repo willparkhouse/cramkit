@@ -77,13 +77,13 @@ export function ChatPage() {
       <div className="space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">Learn</h1>
         <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-8">
+          <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
             <MessageSquare className="h-12 w-12 text-muted-foreground" />
-            <p className="text-muted-foreground">
-              No concepts loaded yet. Ingest your notes first.
+            <p className="text-muted-foreground max-w-md">
+              No concepts to learn from yet. Enroll in modules to get started.
             </p>
             <Button asChild>
-              <Link to="/ingest">Ingest Notes</Link>
+              <Link to="/modules">Browse modules</Link>
             </Button>
           </CardContent>
         </Card>

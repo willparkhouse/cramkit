@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, Upload, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send } from 'lucide-react'
+import { Brain, GraduationCap, Wifi, WifiOff, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import type { QuizFilters, QuizMode } from '@/services/quiz'
@@ -71,21 +71,40 @@ export function QuizPage() {
   }
 
   if (concepts.length === 0) {
+    const hasEnrolledModules = enrolledModuleIds.length > 0
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">Quiz</h1>
         <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-8">
+          <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
             <Brain className="h-12 w-12 text-muted-foreground" />
-            <p className="text-muted-foreground">
-              No concepts loaded yet. Ingest your notes first.
-            </p>
-            <Button asChild>
-              <Link to="/ingest">
-                <Upload className="mr-2 h-4 w-4" />
-                Ingest Notes
-              </Link>
-            </Button>
+            {hasEnrolledModules ? (
+              <>
+                <p className="text-muted-foreground max-w-md">
+                  No questions are available for your enrolled modules yet.
+                  Cramkit's admin needs to add notes for these modules.
+                </p>
+                <Button asChild variant="outline">
+                  <Link to="/modules">
+                    <GraduationCap className="mr-2 h-4 w-4" />
+                    Manage modules
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-muted-foreground max-w-md">
+                  You're not enrolled in any modules yet. Pick the modules
+                  you're studying to start quizzing.
+                </p>
+                <Button asChild>
+                  <Link to="/modules">
+                    <GraduationCap className="mr-2 h-4 w-4" />
+                    Browse modules
+                  </Link>
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
