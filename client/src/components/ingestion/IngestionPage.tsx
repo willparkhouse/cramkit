@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { FileUploader, type UploadedFile } from './FileUploader'
@@ -6,7 +6,7 @@ import { ConceptReview } from './ConceptReview'
 import { IngestionProgress } from './IngestionProgress'
 import { useAppStore } from '@/store/useAppStore'
 import { extractConcepts, generateAllQuestions, retryFailedQuestions, type ReviewConcept } from '@/services/ingestion'
-import { CheckCircle, ArrowRight, RefreshCw } from 'lucide-react'
+import { CheckCircle, ArrowRight, RefreshCw, AlertCircle } from 'lucide-react'
 
 type Step = 'upload' | 'extracting' | 'review' | 'generating' | 'done'
 
@@ -19,6 +19,28 @@ interface IngestionPageProps {
 export function IngestionPage({ defaultModuleId }: IngestionPageProps = {}) {
   const concepts = useAppStore((s) => s.concepts)
   const questions = useAppStore((s) => s.questions)
+
+  // Coverage breakdown for the currently-selected module: how many concepts
+  // exist, how many already have questions, and which are still missing.
+  // Scoped to defaultModuleId so it tracks the admin module picker.
+  const coverage = useMemo(() => {
+    const moduleConcepts = defaultModuleId
+      ? concepts.filter((c) => c.module_ids.includes(defaultModuleId))
+      : concepts
+    const conceptIds = new Set(moduleConcepts.map((c) => c.id))
+    const questionsByConcept = new Map<string, number>()
+    for (const q of questions) {
+      if (conceptIds.has(q.concept_id)) {
+        questionsByConcept.set(q.concept_id, (questionsByConcept.get(q.concept_id) ?? 0) + 1)
+      }
+    }
+    const missing = moduleConcepts.filter((c) => !questionsByConcept.has(c.id))
+    return {
+      total: moduleConcepts.length,
+      withQuestions: moduleConcepts.length - missing.length,
+      missing,
+    }
+  }, [concepts, questions, defaultModuleId])
 
   const [files, setFiles] = useState<UploadedFile[]>([])
   // Always start in upload mode. The previous "auto-done" check based on the
@@ -113,6 +135,46 @@ export function IngestionPage({ defaultModuleId }: IngestionPageProps = {}) {
 
       {step === 'upload' && (
         <>
+          {coverage.total > 0 && (
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium">Coverage</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {coverage.withQuestions} of {coverage.total} concepts have questions
+                      {coverage.missing.length > 0 && (
+                        <> · {coverage.missing.length} missing</>
+                      )}
+                    </div>
+                  </div>
+                  {coverage.missing.length > 0 && (
+                    <Button variant="outline" size="sm" onClick={startRetry}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Retry Failed
+                    </Button>
+                  )}
+                </div>
+                {coverage.missing.length > 0 && (
+                  <div className="text-xs text-muted-foreground border-t pt-3">
+                    <div className="flex items-center gap-1.5 mb-1.5 text-amber-600 dark:text-amber-400">
+                      <AlertCircle className="h-3 w-3" />
+                      <span className="font-medium">Concepts still missing questions</span>
+                    </div>
+                    <ul className="space-y-0.5 max-h-40 overflow-y-auto">
+                      {coverage.missing.slice(0, 25).map((c) => (
+                        <li key={c.id} className="truncate">· {c.name}</li>
+                      ))}
+                      {coverage.missing.length > 25 && (
+                        <li className="italic">…and {coverage.missing.length - 25} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <FileUploader files={files} onFilesChange={setFiles} defaultModuleId={defaultModuleId} />
           {files.length > 0 && (
             <div className="flex justify-end">
