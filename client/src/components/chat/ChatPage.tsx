@@ -5,13 +5,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ConceptSelector } from './ConceptSelector'
 import { useAppStore } from '@/store/useAppStore'
-import { streamChat } from '@/lib/api'
+import { streamChat, MissingApiKeyError } from '@/lib/api'
+import { useSetup } from '@/lib/setupContext'
 import { MessageSquare, Send, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Concept, ChatMessage } from '@/types'
 
 export function ChatPage() {
   const concepts = useAppStore((s) => s.concepts)
+  const { openSetup } = useSetup()
   const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -56,9 +58,15 @@ export function ChatPage() {
         }
       )
     } catch (err) {
-      console.error('Chat error:', err)
-      assistantMessage.content += '\n\n[Error: Failed to get response]'
-      setMessages((prev) => [...prev.slice(0, -1), { ...assistantMessage }])
+      if (err instanceof MissingApiKeyError) {
+        // Strip the placeholder assistant message and prompt setup
+        setMessages((prev) => prev.slice(0, -1))
+        openSetup('required')
+      } else {
+        console.error('Chat error:', err)
+        assistantMessage.content += '\n\n[Error: Failed to get response]'
+        setMessages((prev) => [...prev.slice(0, -1), { ...assistantMessage }])
+      }
     } finally {
       setStreaming(false)
     }

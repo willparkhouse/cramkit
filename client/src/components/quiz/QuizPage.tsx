@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
 import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
-import { streamChat } from '@/lib/api'
+import { streamChat, MissingApiKeyError } from '@/lib/api'
+import { useSetup } from '@/lib/setupContext'
 import { QuestionCard } from './QuestionCard'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -277,6 +278,7 @@ function ReviewAndFeedback({
   const [chatInput, setChatInput] = useState('')
   const [showChat, setShowChat] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const { openSetup } = useSetup()
 
   const conceptContext = `Concept: ${concept.name}\nDescription: ${concept.description}\nKey Facts: ${concept.key_facts.join('; ')}\n\nQuiz question: ${question.question}\n${question.type === 'mcq' && question.options ? `Options: ${question.options.join(', ')}\n` : ''}Correct answer: ${question.correct_answer}\nStudent's answer: ${userAnswer || '(skipped)'}`
 
@@ -305,13 +307,20 @@ function ReviewAndFeedback({
           setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
         }
       )
-    } catch {
-      assistantMsg.content += '\n\n[Error: Failed to get response]'
-      setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
+    } catch (err) {
+      if (err instanceof MissingApiKeyError) {
+        // Strip the placeholder assistant message and open the wizard
+        setChatMessages((prev) => prev.slice(0, -1))
+        setShowChat(false)
+        openSetup('required')
+      } else {
+        assistantMsg.content += '\n\n[Error: Failed to get response]'
+        setChatMessages((prev) => [...prev.slice(0, -1), { ...assistantMsg }])
+      }
     } finally {
       setChatStreaming(false)
     }
-  }, [chatMessages, chatStreaming, conceptContext])
+  }, [chatMessages, chatStreaming, conceptContext, openSetup])
 
   const startChat = useCallback(() => {
     setShowChat(true)

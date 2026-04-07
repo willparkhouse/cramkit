@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { pickNextQuestion, type QuizFilters } from '@/services/quiz'
-import { evaluateAnswer } from '@/lib/api'
+import { evaluateAnswer, MissingApiKeyError } from '@/lib/api'
+import { useSetup } from '@/lib/setupContext'
 import type { Concept, Question, EvaluateAnswerResponse } from '@/types'
 
 interface QuizState {
@@ -18,6 +19,7 @@ interface QuizState {
 export function useQuizSession(filters: QuizFilters) {
   const updateKnowledge = useAppStore((s) => s.updateKnowledge)
   const markQuestionUsed = useAppStore((s) => s.markQuestionUsed)
+  const { openSetup } = useSetup()
 
   const [state, setState] = useState<QuizState>({
     concept: null,
@@ -87,7 +89,6 @@ export function useQuizSession(filters: QuizFilters) {
     async (answer: string) => {
       if (!state.question || !state.concept) return
       setState((s) => ({ ...s, loading: true }))
-      markQuestionUsed(state.question.id)
 
       try {
         const result = await evaluateAnswer({
@@ -95,6 +96,8 @@ export function useQuizSession(filters: QuizFilters) {
           correct_answer: state.question.correct_answer,
           student_answer: answer,
         })
+
+        markQuestionUsed(state.question.id)
 
         const outcome = result.correct
           ? 'correct'
@@ -114,11 +117,15 @@ export function useQuizSession(filters: QuizFilters) {
           feedback: result,
         }))
       } catch (err) {
-        console.error('Evaluation failed:', err)
+        if (err instanceof MissingApiKeyError) {
+          openSetup('required')
+        } else {
+          console.error('Evaluation failed:', err)
+        }
         setState((s) => ({ ...s, loading: false }))
       }
     },
-    [state.question, state.concept, updateKnowledge, markQuestionUsed]
+    [state.question, state.concept, updateKnowledge, markQuestionUsed, openSetup]
   )
 
   const skip = useCallback(() => {

@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AuthProvider, useAuth } from '@/lib/auth'
+import { SetupProvider, useSetup, hasSeenFirstTimeSetup } from '@/lib/setupContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { LoginPage } from '@/components/auth/LoginPage'
+import { SetupWizard } from '@/components/auth/SetupWizard'
 import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { IngestionPage } from '@/components/ingestion/IngestionPage'
 import { QuizPage } from '@/components/quiz/QuizPage'
@@ -18,30 +20,39 @@ import { Loader2 } from 'lucide-react'
 function ProtectedApp() {
   const { user } = useAuth()
   const setHydrated = useAppStore((s) => s.setHydrated)
+  const { openSetup } = useSetup()
 
   useSyncToSupabase()
 
   useEffect(() => {
     if (user) {
       hydrateStore()
+      // First-login setup wizard — only fires once per browser
+      if (!hasSeenFirstTimeSetup()) {
+        // Small delay so the dashboard renders first
+        setTimeout(() => openSetup('first-time'), 400)
+      }
     } else {
       setHydrated(false)
     }
-  }, [user])
+  }, [user, openSetup, setHydrated])
 
   return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/ingest" element={<IngestionPage />} />
-        <Route path="/quiz" element={<QuizPage />} />
-        <Route path="/progress" element={<ProgressPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/schedule" element={<SchedulePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/ingest" element={<IngestionPage />} />
+          <Route path="/quiz" element={<QuizPage />} />
+          <Route path="/progress" element={<ProgressPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+      <SetupWizard />
+    </>
   )
 }
 
@@ -71,7 +82,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AuthGate />
+        <SetupProvider>
+          <AuthGate />
+        </SetupProvider>
       </AuthProvider>
     </BrowserRouter>
   )
