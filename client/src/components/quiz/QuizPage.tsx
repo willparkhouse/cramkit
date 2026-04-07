@@ -69,6 +69,29 @@ export function QuizPage() {
   }, [concepts, filters.moduleId])
 
   const session = useQuizSession(filters)
+  const knowledge = useAppStore((s) => s.knowledge)
+
+  // Global all-time score over the concepts that pass the active filters.
+  // Counts every attempt in `knowledge.history` rather than only this session,
+  // so the header reflects long-term progress, not just the current page load.
+  const globalStats = useMemo(() => {
+    const conceptsInScope = concepts.filter((c) => {
+      if (filters.moduleId && !c.module_ids.includes(filters.moduleId)) return false
+      if (filters.week !== null && filters.week !== undefined && c.week !== filters.week) return false
+      return true
+    })
+    let answered = 0
+    let correct = 0
+    for (const c of conceptsInScope) {
+      const k = knowledge[c.id]
+      if (!k) continue
+      for (const h of k.history) {
+        answered++
+        if (h.correct) correct++
+      }
+    }
+    return { answered, correct }
+  }, [concepts, knowledge, filters.moduleId, filters.week])
 
   // Auto-start on first load
   const [started, setStarted] = useState(false)
@@ -247,21 +270,40 @@ export function QuizPage() {
     .filter(Boolean)
     .join(' · ')
 
+  const accuracyPct = globalStats.answered > 0
+    ? Math.round((globalStats.correct / globalStats.answered) * 100)
+    : null
+
   return (
     <div className="space-y-4">
       {/* Filters live in the global right rail on lg+; below lg they collapse
           into a header bar above the question. */}
       <RightRail>
         <div className="p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-foreground/70" />
-              <h2 className="text-sm font-semibold">Filters</h2>
-            </div>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {session.correctCount}/{session.questionsAnswered}
-            </span>
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-foreground/70" />
+            <h2 className="text-sm font-semibold">Filters</h2>
           </div>
+
+          <div
+            className="rounded-lg bg-background/60 ring-1 ring-border/60 px-3 py-2.5"
+            title="All-time accuracy across every question you've answered for the current filter scope"
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              All-time accuracy
+            </div>
+            {globalStats.answered === 0 ? (
+              <div className="text-sm text-muted-foreground mt-0.5">No questions answered yet</div>
+            ) : (
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-lg font-semibold tabular-nums">{accuracyPct}%</span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {globalStats.correct} of {globalStats.answered} correct
+                </span>
+              </div>
+            )}
+          </div>
+
           {filterGroups}
         </div>
       </RightRail>
@@ -278,8 +320,13 @@ export function QuizPage() {
             <span className="text-xs font-medium text-foreground/80 truncate">{filterSummary}</span>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {session.correctCount}/{session.questionsAnswered}
+            <span
+              className="text-xs text-muted-foreground tabular-nums"
+              title="All-time accuracy for the current filter scope"
+            >
+              {globalStats.answered === 0
+                ? 'No attempts'
+                : `${accuracyPct}% · ${globalStats.correct}/${globalStats.answered}`}
             </span>
             <ChevronDown
               className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
