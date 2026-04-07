@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MobileNav } from './MobileNav'
+import { ThemeToggle } from './ThemeToggle'
 import { useAuth } from '@/lib/auth'
 
 const allNavItems = [
@@ -32,8 +33,8 @@ export function AppShell() {
     <div className="min-h-screen bg-background">
       {/* Desktop sidebar */}
       <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:w-56 md:flex-col border-r border-border bg-sidebar">
-        <div className="flex h-16 items-center px-6 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
+        <div className="flex h-16 items-center justify-between px-4 border-b border-sidebar-border">
+          <div className="flex items-center gap-2 pl-2">
             <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-xs">
               ck
             </div>
@@ -41,6 +42,7 @@ export function AppShell() {
               Cramkit
             </h1>
           </div>
+          <ThemeToggle />
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {navItems.map(({ to, icon: Icon, label }) => (

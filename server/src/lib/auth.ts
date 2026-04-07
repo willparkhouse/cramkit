@@ -46,11 +46,6 @@ export async function requireAuth(c: Context, next: Next) {
       return c.json({ error: 'Invalid token' }, 401)
     }
 
-    // Enforce bham.ac.uk email at the API level too (defence in depth)
-    if (user.email && !/@(.+\.)?bham\.ac\.uk$/i.test(user.email)) {
-      return c.json({ error: 'Forbidden: bham.ac.uk emails only' }, 403)
-    }
-
     c.set('user', user)
     await next()
   } catch (err) {

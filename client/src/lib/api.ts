@@ -136,6 +136,72 @@ ${conceptContext}`
 }
 
 // ============================================================================
+// Lecture RAG: retrieves transcript chunks from server, then streams Claude
+// in the browser (BYOK) with citation protocol [[CITE:n]].
+// ============================================================================
+
+export interface LectureChunk {
+  chunk_id: string
+  lecture_code: string
+  module: string
+  panopto_url: string
+  start_seconds: number
+  end_seconds: number
+  chunk_text: string
+  similarity: number
+  deep_link: string
+  timestamp_label: string
+}
+
+export async function searchLectures(query: string, module?: string): Promise<LectureChunk[]> {
+  const { chunks } = await authedPost<{ chunks: LectureChunk[] }>('/api/lecture-search', {
+    query,
+    module,
+  })
+  return chunks
+}
+
+export async function streamLectureChat(
+  messages: { role: string; content: string }[],
+  chunks: LectureChunk[],
+  onChunk: (text: string) => void,
+): Promise<void> {
+  const client = getAnthropicClient()
+
+  const sources = chunks
+    .map(
+      (c, i) =>
+        `[${i + 1}] ${c.lecture_code} @ ${c.timestamp_label}\n${c.chunk_text}`
+    )
+    .join('\n\n')
+
+  const systemPrompt = `You are a tutor helping a student revise. You have access to retrieved excerpts from their lecture recordings, listed below as numbered sources.
+
+Ground your answers in these excerpts. When you reference something specific, cite it inline using the exact form [[CITE:N]] where N is the source number. You may cite multiple sources. Only cite sources that actually appear below — never invent citations.
+
+If the sources don't contain enough to answer, say so honestly rather than guessing.
+
+Sources:
+${sources}`
+
+  const stream = await client.messages.stream({
+    model: SONNET_MODEL,
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages: messages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    })),
+  })
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      onChunk(event.delta.text)
+    }
+  }
+}
+
+// ============================================================================
 // CRUD via Supabase (client-side, RLS enforces ownership)
 // ============================================================================
 

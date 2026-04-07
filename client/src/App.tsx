@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { SetupProvider, useSetup, hasSeenFirstTimeSetup } from '@/lib/setupContext'
+import { ThemeProvider } from '@/lib/theme'
 import { AppShell } from '@/components/layout/AppShell'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { SetupWizard } from '@/components/auth/SetupWizard'
@@ -9,6 +10,7 @@ import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { IngestionPage } from '@/components/ingestion/IngestionPage'
 import { QuizPage } from '@/components/quiz/QuizPage'
 import { ChatPage } from '@/components/chat/ChatPage'
+import { LectureChatPage } from '@/components/chat/LectureChatPage'
 import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
@@ -47,6 +49,7 @@ function ProtectedApp() {
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/lectures" element={<LectureChatPage />} />
           <Route path="/settings" element={<SettingsPage />} />
 
           {/* Admin-only routes */}
@@ -86,11 +89,13 @@ function AuthGate() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <SetupProvider>
-          <AuthGate />
-        </SetupProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <SetupProvider>
+            <AuthGate />
+          </SetupProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }
