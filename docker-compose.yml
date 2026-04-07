@@ -1,0 +1,23 @@
+services:
+  cramkit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+    container_name: cramkit
+    restart: unless-stopped
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SUPABASE_URL: ${VITE_SUPABASE_URL}
+      SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+      CORS_ORIGINS: https://cramkit.app,http://localhost:5173
+      PORT: 3001
+    networks:
+      - cramkit_net
+
+networks:
+  cramkit_net:
+    name: cramkit_net
+    driver: bridge

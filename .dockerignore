@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.env*
+!server/.env.example
+**/.git
+**/.gitignore
+**/.DS_Store
+**/.vscode
+**/.idea
+**/coverage
+**/data/*.db*
+**/*.log
+**/scripts/*.db*
+README.md

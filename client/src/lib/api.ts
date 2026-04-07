@@ -1,0 +1,282 @@
+import Anthropic from '@anthropic-ai/sdk'
+import { supabase } from './supabase'
+import { getApiKey } from './apiKey'
+import type {
+  ExtractConceptsRequest,
+  ExtractConceptsResponse,
+  GenerateQuestionsRequest,
+  GenerateQuestionsResponse,
+  EvaluateAnswerRequest,
+  EvaluateAnswerResponse,
+  DeduplicateRequest,
+  DeduplicateResponse,
+  Exam,
+  Concept,
+  Question,
+  KnowledgeEntry,
+  RevisionSlot,
+} from '@/types'
+
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+const SONNET_MODEL = 'claude-sonnet-4-5'
+
+// ============================================================================
+// Server-side ingestion (uses platform Anthropic key)
+// JWT from Supabase session is sent for user identification
+// ============================================================================
+
+async function authedPost<T>(url: string, body: unknown): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const error = await res.text()
+    throw new Error(`API error ${res.status}: ${error}`)
+  }
+  return res.json()
+}
+
+export async function extractConcepts(req: ExtractConceptsRequest): Promise<ExtractConceptsResponse> {
+  return authedPost('/api/extract-concepts', req)
+}
+
+export async function deduplicateConcepts(req: DeduplicateRequest): Promise<DeduplicateResponse> {
+  return authedPost('/api/deduplicate', req)
+}
+
+export async function generateQuestions(req: GenerateQuestionsRequest): Promise<GenerateQuestionsResponse> {
+  return authedPost('/api/generate-questions', req)
+}
+
+// ============================================================================
+// Browser-side AI calls (BYOK — uses user's own Anthropic key)
+// ============================================================================
+
+class MissingApiKeyError extends Error {
+  constructor() {
+    super('No Anthropic API key configured. Add one in Settings.')
+    this.name = 'MissingApiKeyError'
+  }
+}
+
+function getAnthropicClient(): Anthropic {
+  const apiKey = getApiKey()
+  if (!apiKey) throw new MissingApiKeyError()
+  return new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+}
+
+export { MissingApiKeyError }
+
+export async function evaluateAnswer(req: EvaluateAnswerRequest): Promise<EvaluateAnswerResponse> {
+  const client = getAnthropicClient()
+  const response = await client.messages.create({
+    model: HAIKU_MODEL,
+    max_tokens: 200,
+    system: `You are evaluating a student's exam answer. Be generous with partial credit.
+Return ONLY a JSON object: { "correct": boolean, "partial_credit": boolean, "feedback": "one sentence" }`,
+    messages: [
+      {
+        role: 'user',
+        content: `Question: ${req.question}\nCorrect answer: ${req.correct_answer}\nStudent's answer: ${req.student_answer}`,
+      },
+    ],
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    return { correct: false, partial_credit: false, feedback: 'Could not evaluate answer.' }
+  }
+  try {
+    return JSON.parse(jsonMatch[0])
+  } catch {
+    return { correct: false, partial_credit: false, feedback: 'Could not evaluate answer.' }
+  }
+}
+
+export async function streamChat(
+  messages: { role: string; content: string }[],
+  conceptContext: string,
+  onChunk: (text: string) => void,
+): Promise<void> {
+  const client = getAnthropicClient()
+  const systemPrompt = `You are a helpful tutor helping a student revise for their university exams.
+You are currently helping them learn about a specific concept. Use the context below to ground your answers
+in the actual course material. Be concise, clear, and focused on helping them understand.
+
+Context from course notes:
+${conceptContext}`
+
+  const stream = await client.messages.stream({
+    model: SONNET_MODEL,
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages: messages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    })),
+  })
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      onChunk(event.delta.text)
+    }
+  }
+}
+
+// ============================================================================
+// CRUD via Supabase (client-side, RLS enforces ownership)
+// ============================================================================
+
+export async function fetchExams(): Promise<Exam[]> {
+  const { data, error } = await supabase.from('exams').select('*').order('date')
+  if (error) throw error
+  return (data || []) as Exam[]
+}
+
+export async function fetchConcepts(): Promise<Concept[]> {
+  const { data, error } = await supabase.from('concepts').select('*').order('name')
+  if (error) throw error
+  return (data || []) as Concept[]
+}
+
+export async function fetchConceptsMissingQuestions(): Promise<Concept[]> {
+  const { data, error } = await supabase
+    .from('concepts')
+    .select('*, questions(id)')
+  if (error) throw error
+  return ((data || []) as Array<Concept & { questions: { id: string }[] }>)
+    .filter((c) => !c.questions || c.questions.length === 0)
+    .map((c) => {
+      const { questions, ...rest } = c
+      void questions
+      return rest as Concept
+    })
+}
+
+export async function saveConcepts(concepts: Partial<Concept>[]): Promise<Concept[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const rows = concepts.map((c) => ({
+    user_id: user.id,
+    name: c.name,
+    description: c.description,
+    key_facts: c.key_facts || [],
+    module_ids: c.module_ids || [],
+    difficulty: c.difficulty,
+    source_excerpt: c.source_excerpt || null,
+    week: c.week ?? null,
+    lecture: c.lecture ?? null,
+  }))
+
+  const { data, error } = await supabase.from('concepts').insert(rows).select()
+  if (error) throw error
+  return (data || []) as Concept[]
+}
+
+export async function fetchQuestions(): Promise<Question[]> {
+  const { data, error } = await supabase.from('questions').select('*')
+  if (error) throw error
+  return (data || []) as Question[]
+}
+
+export async function saveQuestions(questions: Partial<Question>[]): Promise<Question[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const rows = questions.map((q) => ({
+    user_id: user.id,
+    concept_id: q.concept_id,
+    type: q.type,
+    difficulty: q.difficulty,
+    question: q.question,
+    options: q.options || null,
+    correct_answer: q.correct_answer,
+    explanation: q.explanation || null,
+    source: q.source || 'batch',
+    times_used: q.times_used || 0,
+  }))
+
+  const { data, error } = await supabase.from('questions').insert(rows).select()
+  if (error) throw error
+  return (data || []) as Question[]
+}
+
+export async function updateQuestion(id: string, updates: Partial<Question>): Promise<void> {
+  const { error } = await supabase.from('questions').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+export async function fetchKnowledge(): Promise<KnowledgeEntry[]> {
+  const { data, error } = await supabase.from('knowledge').select('*')
+  if (error) throw error
+  return (data || []) as KnowledgeEntry[]
+}
+
+export async function syncKnowledge(entries: KnowledgeEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const rows = entries.map((k) => ({
+    user_id: user.id,
+    concept_id: k.concept_id,
+    score: k.score,
+    last_tested: k.last_tested,
+    history: k.history,
+    updated_at: k.updated_at,
+  }))
+
+  const { error } = await supabase
+    .from('knowledge')
+    .upsert(rows, { onConflict: 'user_id,concept_id' })
+  if (error) throw error
+}
+
+export async function fetchSlots(): Promise<RevisionSlot[]> {
+  const { data, error } = await supabase
+    .from('revision_slots')
+    .select('*')
+    .order('start_time')
+  if (error) throw error
+  return (data || []) as RevisionSlot[]
+}
+
+export async function createSlot(slot: Partial<RevisionSlot>): Promise<RevisionSlot> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('revision_slots')
+    .insert({
+      user_id: user.id,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      allocated_module_id: slot.allocated_module_id || null,
+      calendar_event_id: slot.calendar_event_id || null,
+      status: slot.status || 'pending',
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return data as RevisionSlot
+}
+
+export async function updateSlot(id: string, updates: Partial<RevisionSlot>): Promise<void> {
+  const { error } = await supabase.from('revision_slots').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteSlot(id: string): Promise<void> {
+  const { error } = await supabase.from('revision_slots').delete().eq('id', id)
+  if (error) throw error
+}
