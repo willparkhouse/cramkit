@@ -8,6 +8,7 @@ import {
   BarChart3,
   Settings,
   GraduationCap,
+  Github,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MobileNav } from './MobileNav'
@@ -57,7 +58,17 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-sidebar-border flex justify-end">
+        <div className="p-3 border-t border-sidebar-border flex items-center justify-between">
+          <a
+            href="https://github.com/willparkhouse/cramkit"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+            title="View source on GitHub"
+          >
+            <Github className="h-3.5 w-3.5" />
+            GitHub
+          </a>
           <ThemeToggle />
         </div>
       </aside>

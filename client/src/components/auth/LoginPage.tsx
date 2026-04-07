@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { supabase, isValidEmail, isBhamEmail } from '@/lib/supabase'
 import { Logo } from '@/components/layout/Logo'
-import { Loader2, Mail, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react'
+import { Loader2, Mail, CheckCircle, AlertTriangle, ArrowRight, Github } from 'lucide-react'
 
 export function LoginPage() {
   const [email, setEmail] = useState('')
@@ -119,10 +119,19 @@ export function LoginPage() {
         </div>
       </main>
 
-      <footer className="px-6 py-6 text-center">
+      <footer className="px-6 py-6 flex flex-col items-center gap-2">
         <p className="text-xs text-muted-foreground">
           Built for May 2026 exams · BYOK Anthropic for AI features
         </p>
+        <a
+          href="https://github.com/willparkhouse/cramkit"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Github className="h-3 w-3" />
+          Open source on GitHub
+        </a>
       </footer>
     </div>
   )
