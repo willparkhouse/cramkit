@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import OpenAI from 'openai'
 import { requireAuth } from '../lib/auth.js'
+import { rateLimit } from '../lib/rateLimit.js'
 
 const app = new Hono()
 
@@ -9,6 +10,9 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY
 const OPENAI_KEY = process.env.OPENAI_API_KEY
 
 const openai = new OpenAI({ apiKey: OPENAI_KEY || '' })
+
+const MAX_QUERY_LENGTH = 1000      // chars
+const MAX_MATCH_COUNT = 20         // ceiling on chunks returned
 
 interface MatchedChunk {
   chunk_id: string
@@ -38,7 +42,13 @@ function buildDeepLink(panoptoUrl: string, startSeconds: number): string {
   return `${panoptoUrl}${sep}start=${startSeconds}`
 }
 
-app.use('/lecture-search', requireAuth)
+// Auth + rate limit: any signed-in user can search lectures, but capped to
+// 30 requests per minute per user to prevent OpenAI embedding cost abuse.
+app.use(
+  '/lecture-search',
+  requireAuth,
+  rateLimit({ key: 'lecture-search', windowMs: 60_000, max: 30 })
+)
 
 app.post('/lecture-search', async (c) => {
   if (!OPENAI_KEY) return c.json({ error: 'OPENAI_API_KEY not configured' }, 500)
@@ -51,7 +61,19 @@ app.post('/lecture-search', async (c) => {
     module?: string
     match_count?: number
   }>()
-  if (!query?.trim()) return c.json({ error: 'query required' }, 400)
+  if (typeof query !== 'string' || !query.trim()) {
+    return c.json({ error: 'query required' }, 400)
+  }
+  if (query.length > MAX_QUERY_LENGTH) {
+    return c.json({ error: `query too long (max ${MAX_QUERY_LENGTH} chars)` }, 413)
+  }
+  if (module !== undefined && (typeof module !== 'string' || module.length > 100)) {
+    return c.json({ error: 'invalid module filter' }, 400)
+  }
+  const safeMatchCount = Math.min(
+    Math.max(typeof match_count === 'number' ? match_count : 8, 1),
+    MAX_MATCH_COUNT
+  )
 
   // Embed the query
   const emb = await openai.embeddings.create({
@@ -71,7 +93,7 @@ app.post('/lecture-search', async (c) => {
     },
     body: JSON.stringify({
       query_embedding: embedding,
-      match_count: match_count ?? 8,
+      match_count: safeMatchCount,
       module_filter: module ?? null,
     }),
   })

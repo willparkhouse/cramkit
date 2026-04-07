@@ -1,13 +1,20 @@
 import { Hono } from 'hono'
 import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
-import { requireAuth } from '../lib/auth.js'
+import { requireAuth, requireAdmin } from '../lib/auth.js'
 
 const app = new Hono()
 
-// All ingestion routes require an authenticated user
-app.use('/extract-concepts', requireAuth)
-app.use('/deduplicate', requireAuth)
-app.use('/generate-questions', requireAuth)
+// Ingestion is admin-only — these routes burn the platform's Anthropic credits
+// so we can't expose them to arbitrary signed-in users.
+app.use('/extract-concepts', requireAuth, requireAdmin)
+app.use('/deduplicate', requireAuth, requireAdmin)
+app.use('/generate-questions', requireAuth, requireAdmin)
+
+// Defence-in-depth caps to prevent a malicious admin (or compromised admin
+// account) from sending an arbitrarily large payload that runs up the bill.
+const MAX_NOTES_BYTES = 200 * 1024       // 200 KB per file
+const MAX_DEDUP_BYTES = 500 * 1024       // 500 KB combined
+const MAX_GENERATE_CONCEPTS = 20         // batch ceiling for question gen
 
 // Retry helper with exponential backoff for rate limits
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
@@ -33,6 +40,16 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
 // Extract concepts from notes
 app.post('/extract-concepts', async (c) => {
   const { notes, module_name, module_id, exam_paper } = await c.req.json()
+
+  if (typeof notes !== 'string' || !notes.trim()) {
+    return c.json({ error: 'notes (string) required' }, 400)
+  }
+  if (notes.length > MAX_NOTES_BYTES) {
+    return c.json({ error: `notes too large (max ${MAX_NOTES_BYTES} bytes)` }, 413)
+  }
+  if (typeof module_name !== 'string' || module_name.length > 200) {
+    return c.json({ error: 'module_name required (max 200 chars)' }, 400)
+  }
 
   // Estimate content size to guide concept count
   const wordCount = notes.split(/\s+/).length
@@ -101,7 +118,14 @@ Guidelines:
 
 // Deduplicate concepts across modules
 app.post('/deduplicate', async (c) => {
-  const { modules } = await c.req.json()
+  const body = await c.req.text()
+  if (body.length > MAX_DEDUP_BYTES) {
+    return c.json({ error: `payload too large (max ${MAX_DEDUP_BYTES} bytes)` }, 413)
+  }
+  const { modules } = JSON.parse(body)
+  if (!Array.isArray(modules)) {
+    return c.json({ error: 'modules array required' }, 400)
+  }
 
   // Build a compact representation — skip source_excerpt to save tokens
   const compactModules = modules.map((m: { module_name: string; module_id: string; concepts: { name: string; description: string; key_facts: string[]; difficulty: number; source_excerpt: string }[] }) => ({
@@ -216,6 +240,12 @@ IMPORTANT: Your response must be valid JSON. Do not truncate the output.`,
 // Generate questions for concepts
 app.post('/generate-questions', async (c) => {
   const { concepts, exam_paper_excerpt, module_name } = await c.req.json()
+  if (!Array.isArray(concepts)) {
+    return c.json({ error: 'concepts array required' }, 400)
+  }
+  if (concepts.length > MAX_GENERATE_CONCEPTS) {
+    return c.json({ error: `too many concepts in one batch (max ${MAX_GENERATE_CONCEPTS})` }, 413)
+  }
 
   let systemPrompt = `You are generating quiz questions for university exam revision.
 For each concept, generate an appropriate number of questions based on its complexity:

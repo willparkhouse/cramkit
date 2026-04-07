@@ -3,6 +3,12 @@ import type { Context, Next } from 'hono'
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY
 
+// Comma-separated allowlist of admin emails. Defaults to the project owner if unset.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'wjdparkhouse@gmail.com')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean)
+
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   console.warn('SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY not set — JWT validation disabled')
 }
@@ -52,4 +58,19 @@ export async function requireAuth(c: Context, next: Next) {
     console.error('Auth check failed:', err)
     return c.json({ error: 'Auth check failed' }, 500)
   }
+}
+
+/**
+ * Middleware that requires the caller to be on the admin allowlist.
+ * Composes with requireAuth — call requireAuth first.
+ */
+export async function requireAdmin(c: Context, next: Next) {
+  const user = c.get('user') as SupabaseUser | undefined
+  if (!user?.email) {
+    return c.json({ error: 'Not authenticated' }, 401)
+  }
+  if (!ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+    return c.json({ error: 'Forbidden: admin only' }, 403)
+  }
+  await next()
 }
