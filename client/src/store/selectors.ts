@@ -88,7 +88,11 @@ export function useModulePriorities(): Map<string, number> {
 export function selectNextConcept(
   concepts: Concept[],
   knowledge: Record<string, { score: number; last_tested: string | null }>,
-  exams: Exam[]
+  exams: Exam[],
+  /** Recently-shown concept ids (most-recent-first). Concepts in this list
+   *  get a heavy down-weight so the user isn't shown the same topic twice in
+   *  a row. Empty array = no penalty. */
+  recentConceptIds: string[] = [],
 ): Concept | null {
   if (concepts.length === 0) return null
 
@@ -107,6 +111,16 @@ export function selectNextConcept(
     modulePriorities.set(exam.id, (exam.weight * (1 - avgConf)) / days)
   }
 
+  // Anti-recency penalty. Concepts seen in the last 8 picks get aggressively
+  // down-weighted so we don't dwell on the same topic. The penalty decays
+  // with position so the most-recent concept is hit hardest.
+  const recentPenalty = new Map<string, number>()
+  for (let i = 0; i < recentConceptIds.length && i < 8; i++) {
+    // 0 → 1.0 (max penalty), 7 → ~0.125
+    const factor = (i + 1) / 8
+    recentPenalty.set(recentConceptIds[i], 0.05 + factor * 0.5)
+  }
+
   // Weight each concept
   const weighted = concepts.map((c) => {
     const k = knowledge[c.id]
@@ -114,13 +128,15 @@ export function selectNextConcept(
     const maxModulePriority = Math.max(
       ...c.module_ids.map((id) => modulePriorities.get(id) || 0)
     )
-    const weight = maxModulePriority * (1 - effectiveScore)
-    return { concept: c, weight }
+    const baseWeight = maxModulePriority * (1 - effectiveScore)
+    const penalty = recentPenalty.get(c.id) ?? 1
+    return { concept: c, weight: baseWeight * penalty }
   })
 
-  // Weighted random from top 5
+  // Weighted random across the top 15 (was top 5 — too narrow on a 400-concept
+  // bank, the algorithm had nowhere to escape to once it locked onto a few).
   weighted.sort((a, b) => b.weight - a.weight)
-  const top = weighted.slice(0, 5)
+  const top = weighted.slice(0, 15)
   const totalWeight = top.reduce((sum, w) => sum + w.weight, 0)
   if (totalWeight === 0) return top[0]?.concept || null
 

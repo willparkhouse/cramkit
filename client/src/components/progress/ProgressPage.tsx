@@ -206,23 +206,18 @@ export function ProgressPage() {
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm" variant="outline">
+          <Link to={`/quiz?mode=chronological${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
+            Smart chronological
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="outline">
           <Link to={`/quiz?mode=weakest${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
-            Quiz Weakest
+            Weakest first
           </Link>
         </Button>
         <Button asChild size="sm" variant="outline">
-          <Link to={`/quiz?mode=untested${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
-            Quiz Untested ({summary.untested})
-          </Link>
-        </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link to={`/quiz?mode=mistakes${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
-            Review Mistakes ({summary.weak})
-          </Link>
-        </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link to={`/quiz?mode=spaced${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
-            Spaced Repetition
+          <Link to={`/quiz?mode=weakest&onlyMistakes=1${moduleFilter ? `&module=${moduleFilter}` : ''}`}>
+            Review mistakes ({summary.weak})
           </Link>
         </Button>
       </div>

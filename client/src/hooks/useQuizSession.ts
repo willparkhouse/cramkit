@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { pickNextQuestion, type QuizFilters } from '@/services/quiz'
 import { evaluateAnswer, MissingApiKeyError } from '@/lib/api'
@@ -33,16 +33,28 @@ export function useQuizSession(filters: QuizFilters) {
     userAnswer: null,
   })
 
+  // Ring buffer of recently-shown concept ids (most-recent-first). Lives in
+  // a ref so updates don't re-render the hook. selectNextConcept uses this
+  // to down-weight repeats so the user doesn't see the same topic twice in
+  // a row.
+  const recentConceptIds = useRef<string[]>([])
+
+  const pushRecent = useCallback((conceptId: string) => {
+    const next = [conceptId, ...recentConceptIds.current.filter((id) => id !== conceptId)]
+    recentConceptIds.current = next.slice(0, 12)
+  }, [])
+
   const nextQuestion = useCallback((overrideFilters?: QuizFilters) => {
     const used = overrideFilters || filters
     console.log('[session] nextQuestion called, filters:', used, 'override:', !!overrideFilters)
-    const result = pickNextQuestion(used)
+    const result = pickNextQuestion(used, recentConceptIds.current)
     if (!result) {
       console.log('[session] no question returned, showing empty state')
       setState((s) => ({ ...s, concept: null, question: null }))
       return
     }
     console.log('[session] got question:', result.question.type, result.concept.name)
+    pushRecent(result.concept.id)
     setState((s) => ({
       ...s,
       concept: result.concept,
@@ -51,7 +63,7 @@ export function useQuizSession(filters: QuizFilters) {
       showFeedback: false,
       userAnswer: null,
     }))
-  }, [filters])
+  }, [filters, pushRecent])
 
   const submitMCQ = useCallback(
     (selectedAnswer: string) => {
@@ -171,7 +183,8 @@ export function useQuizSession(filters: QuizFilters) {
   // knowledge or mark the question used, so it can come back later. Just
   // pull the next question immediately.
   const skip = useCallback(() => {
-    const result = pickNextQuestion(filters)
+    const result = pickNextQuestion(filters, recentConceptIds.current)
+    if (result) pushRecent(result.concept.id)
     setState((s) => ({
       ...s,
       concept: result?.concept || null,
@@ -180,7 +193,7 @@ export function useQuizSession(filters: QuizFilters) {
       showFeedback: false,
       userAnswer: null,
     }))
-  }, [filters])
+  }, [filters, pushRecent])
 
   return {
     ...state,

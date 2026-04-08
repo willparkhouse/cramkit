@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
+import { MODULE_SHORT_NAMES } from '@/lib/constants'
 import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
 import { startConversation, logChatMessage, bumpStudyActivity } from '@/services/activity'
 import { renderWithCitations } from '@/lib/citations'
@@ -39,7 +39,16 @@ export function QuizPage() {
   const hydrated = useAppStore((s) => s.hydrated)
 
   const [searchParams] = useSearchParams()
-  const initialMode = (searchParams.get('mode') as QuizMode) || 'weakest'
+  const rawMode = searchParams.get('mode')
+  // Coerce legacy ?mode= values onto the new two-mode surface so old links
+  // (and the now-removed Progress quick-action buttons) keep working.
+  const initialMode: QuizMode =
+    rawMode === 'chronological' || rawMode === 'weakest'
+      ? rawMode
+      : rawMode === 'mistakes' || rawMode === 'untested' || rawMode === 'spaced'
+        ? 'weakest'
+        : 'chronological'
+  const initialOnlyMistakes = searchParams.get('onlyMistakes') === '1' || rawMode === 'mistakes'
   const initialModule = searchParams.get('module') || null
 
   const [filters, setFilters] = useState<QuizFilters>({
@@ -48,6 +57,7 @@ export function QuizPage() {
     week: null,
     mode: initialMode,
     difficulty: 'all',
+    onlyMistakes: initialOnlyMistakes,
   })
   const [filtersOpen, setFiltersOpen] = useState(false)
 
@@ -156,24 +166,14 @@ export function QuizPage() {
 
   const modes: { mode: QuizMode; label: string; description: string }[] = [
     {
+      mode: 'chronological',
+      label: 'Smart chronological',
+      description: 'Walks lectures in order. Stays on the lecture you\'re weakest on and drifts forward as you build confidence. Best with a module selected.',
+    },
+    {
       mode: 'weakest',
       label: 'Weakest first',
-      description: 'Prioritises concepts you score lowest on. The default — best for general revision.',
-    },
-    {
-      mode: 'untested',
-      label: 'Untested',
-      description: "Only shows concepts you've never been quizzed on yet. Good for seeing what's left to cover.",
-    },
-    {
-      mode: 'mistakes',
-      label: 'Review mistakes',
-      description: "Only shows concepts where you've gotten questions wrong or scored below 50%.",
-    },
-    {
-      mode: 'spaced',
-      label: 'Spaced repetition',
-      description: 'Concepts that are due for review — your previous score has decayed over time so it\'s worth revisiting.',
+      description: 'Skips around the bank, biased towards whichever concepts you score lowest on right now.',
     },
   ]
 
@@ -239,8 +239,8 @@ export function QuizPage() {
           value={filters.questionType}
           onChange={(e) => updateFilter({ ...filters, questionType: e.target.value as QuizFilters['questionType'] })}
         >
-          <option value="all">All types (uses AI)</option>
-          <option value="mcq">Multiple choice only (offline)</option>
+          <option value="all">MCQ + free form</option>
+          <option value="mcq">Just MCQ (no AI)</option>
         </select>
       </FilterField>
 
@@ -258,6 +258,16 @@ export function QuizPage() {
           {modes.find((m) => m.mode === filters.mode)?.description}
         </p>
       </FilterField>
+
+      <label className="flex items-center gap-2 cursor-pointer text-xs">
+        <input
+          type="checkbox"
+          checked={filters.onlyMistakes ?? false}
+          onChange={(e) => updateFilter({ ...filters, onlyMistakes: e.target.checked })}
+          className="h-3.5 w-3.5 accent-primary shrink-0"
+        />
+        <span className="text-foreground/80">Only ones I've gotten wrong</span>
+      </label>
     </div>
   )
 

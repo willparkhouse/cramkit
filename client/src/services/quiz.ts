@@ -4,7 +4,10 @@ import { DECAY_LAMBDA } from '@/lib/constants'
 import { daysSince } from '@/lib/utils'
 import type { Question, Concept } from '@/types'
 
-export type QuizMode = 'weakest' | 'untested' | 'mistakes' | 'spaced'
+// Two selection philosophies. Everything else (mistakes-only, untested-only,
+// due-for-review) is now expressed as composable filter flags rather than
+// mutually-exclusive modes — far less decision fatigue, and you can mix them.
+export type QuizMode = 'chronological' | 'weakest'
 export type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
 export interface QuizFilters {
@@ -13,11 +16,19 @@ export interface QuizFilters {
   week: number | null
   mode: QuizMode
   difficulty: DifficultyFilter
+  /** When true, only show concepts where the user has answered at least one
+   *  question wrong (or scored < 0.5 overall). Composes with mode. */
+  onlyMistakes?: boolean
   /** When true, past-paper questions are excluded from selection. Default true. */
   excludePastPapers?: boolean
 }
 
-export function pickNextQuestion(filters: QuizFilters): { concept: Concept; question: Question } | null {
+export function pickNextQuestion(
+  filters: QuizFilters,
+  /** Most-recent-first list of concept ids the user has just been shown.
+   *  Used to suppress immediate repeats. Empty array = no anti-recency. */
+  recentConceptIds: string[] = [],
+): { concept: Concept; question: Question } | null {
   const state = useAppStore.getState()
   let { concepts, questions } = state
   const { knowledge, enrolledModuleIds } = state
@@ -69,63 +80,29 @@ export function pickNextQuestion(filters: QuizFilters): { concept: Concept; ques
 
   if (concepts.length === 0) return null
 
-  // Apply mode-specific concept filtering
-  switch (filters.mode) {
-    case 'untested':
-      concepts = concepts.filter((c) => !knowledge[c.id] || knowledge[c.id].history.length === 0)
-      break
-
-    case 'mistakes':
-      concepts = concepts.filter((c) => {
-        const k = knowledge[c.id]
-        if (!k || k.history.length === 0) return false
-        // Has at least one wrong answer, or score is below 0.5
-        const hasWrong = k.history.some((h) => !h.correct)
-        return hasWrong || k.score < 0.5
-      })
-      break
-
-    case 'spaced': {
-      // Concepts that have been tested but are "due" — their effective score
-      // has decayed significantly from their raw score (meaning time has passed)
-      concepts = concepts.filter((c) => {
-        const k = knowledge[c.id]
-        if (!k || k.history.length === 0) return false
-        const effective = getEffectiveScore(k.score, k.last_tested)
-        const decay = k.score - effective
-        // Due if decayed by at least 15% from raw score, or last tested > 2 days ago
-        return decay > 0.15 || daysSince(k.last_tested) > 2
-      })
-      break
-    }
-
-    case 'weakest':
-    default:
-      // No extra filtering — selectNextConcept already prioritises weak concepts
-      break
+  // Compose filter flags. These run independently of the mode and apply
+  // before the selection algorithm sees the candidate pool.
+  if (filters.onlyMistakes) {
+    concepts = concepts.filter((c) => {
+      const k = knowledge[c.id]
+      if (!k || k.history.length === 0) return false
+      const hasWrong = k.history.some((h) => !h.correct)
+      return hasWrong || k.score < 0.5
+    })
   }
 
   if (concepts.length === 0) return null
 
-  // For spaced repetition, sort by how overdue they are instead of using priority algorithm
-  if (filters.mode === 'spaced') {
-    concepts.sort((a, b) => {
-      const ka = knowledge[a.id]
-      const kb = knowledge[b.id]
-      const decayA = ka ? ka.score - getEffectiveScore(ka.score, ka.last_tested) : 0
-      const decayB = kb ? kb.score - getEffectiveScore(kb.score, kb.last_tested) : 0
-      return decayB - decayA // Most decayed first
-    })
-    // Pick from top 3 randomly
-    const top = concepts.slice(0, 3)
-    const concept = top[Math.floor(Math.random() * top.length)]
-    const question = selectQuestion(concept.id, questions)
-    return question ? { concept, question } : null
+  // Chronological mode: walk lectures in order, weight by a soft Gaussian
+  // centred on the first under-confident lecture so the cursor drifts forward
+  // organically as the student progresses. Best used with a module selected.
+  if (filters.mode === 'chronological') {
+    return pickChronological(concepts, questions, knowledge)
   }
 
   // Default: use priority-weighted selection with retries
   for (let attempt = 0; attempt < 5; attempt++) {
-    const concept = selectNextConcept(concepts, knowledge, exams)
+    const concept = selectNextConcept(concepts, knowledge, exams, recentConceptIds)
     if (!concept) return null
 
     const question = selectQuestion(concept.id, questions)
@@ -136,6 +113,130 @@ export function pickNextQuestion(filters: QuizFilters): { concept: Concept; ques
   }
 
   return null
+}
+
+// ----------------------------------------------------------------------------
+// Chronological mode
+// ----------------------------------------------------------------------------
+
+/**
+ * Bucket concepts by `(week, lecture)`, sort the buckets in chronological
+ * order, then weight each bucket by:
+ *
+ *   weight(i) = exp(-((i - focus)² / σ²)) * (1 - readiness(i))
+ *
+ * where `focus` is the first bucket whose mean effective score is below
+ * READINESS_GOAL. This produces a soft, drifting cursor — most questions come
+ * from the focus lecture, with occasional teasers from the next lecture and
+ * back-references to earlier ones. As the student gets more confident on the
+ * focus lecture, its weight drops and the focus naturally shifts forward.
+ */
+function pickChronological(
+  concepts: Concept[],
+  questions: Question[],
+  knowledge: Record<string, { score: number; last_tested: string | null; history: unknown[] }>,
+): { concept: Concept; question: Question } | null {
+  const READINESS_GOAL = 0.7
+  const SIGMA = 1.5
+
+  // Build buckets keyed by `${week}|${lecture}`. Concepts without a lecture
+  // id are pooled into a final 'unscheduled' bucket so they don't disappear.
+  type Bucket = { key: string; week: number; lecture: string; concepts: Concept[]; readiness: number }
+  const bucketMap = new Map<string, Bucket>()
+  for (const c of concepts) {
+    const week = c.week ?? 9999
+    const lecture = c.lecture ?? '__none'
+    const key = `${week}|${lecture}`
+    if (!bucketMap.has(key)) {
+      bucketMap.set(key, { key, week, lecture, concepts: [], readiness: 0 })
+    }
+    bucketMap.get(key)!.concepts.push(c)
+  }
+
+  // Compute readiness per bucket: mean effective score over its concepts.
+  for (const b of bucketMap.values()) {
+    const total = b.concepts.reduce((s, c) => {
+      const k = knowledge[c.id]
+      return s + (k ? getEffectiveScore(k.score, k.last_tested) : 0)
+    }, 0)
+    b.readiness = b.concepts.length > 0 ? total / b.concepts.length : 0
+  }
+
+  // Order buckets chronologically. Use a natural-numeric compare on the
+  // lecture id so "1.2" sorts after "1" and before "2".
+  const buckets = [...bucketMap.values()].sort((a, b) => {
+    if (a.week !== b.week) return a.week - b.week
+    return naturalCompare(a.lecture, b.lecture)
+  })
+
+  if (buckets.length === 0) return null
+
+  // Find the focus bucket: first one whose readiness is below the goal.
+  // If everything's "done", revert to a uniform weighted-random over the last
+  // bucket (revision pass).
+  let focusIndex = buckets.findIndex((b) => b.readiness < READINESS_GOAL)
+  if (focusIndex === -1) focusIndex = buckets.length - 1
+
+  // Build per-bucket weights. Multiply the bell curve by (1 - readiness) so
+  // a lecture you've already grasped contributes less even if it's near the
+  // focus.
+  const weighted = buckets.map((b, i) => {
+    const distance = i - focusIndex
+    const bell = Math.exp(-(distance * distance) / (SIGMA * SIGMA))
+    const weight = bell * (1 - Math.min(b.readiness, 0.95))
+    return { bucket: b, weight }
+  })
+
+  const totalWeight = weighted.reduce((s, w) => s + w.weight, 0)
+  if (totalWeight === 0) {
+    // Everything is at readiness ≥ 0.95. Just pick a random concept from any
+    // bucket so the user doesn't see an empty state.
+    const all = buckets.flatMap((b) => b.concepts)
+    const concept = all[Math.floor(Math.random() * all.length)]
+    const q = selectQuestion(concept.id, questions)
+    return q ? { concept, question: q } : null
+  }
+
+  // Try a few times in case the chosen bucket has no questions.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let r = Math.random() * totalWeight
+    let chosen = weighted[0].bucket
+    for (const w of weighted) {
+      r -= w.weight
+      if (r <= 0) { chosen = w.bucket; break }
+    }
+
+    // Within the chosen bucket, pick the weakest concept (with some variation
+    // — pick weighted-random from the 3 weakest).
+    const sorted = [...chosen.concepts].sort((a, b) => {
+      const ea = knowledge[a.id] ? getEffectiveScore(knowledge[a.id].score, knowledge[a.id].last_tested) : 0
+      const eb = knowledge[b.id] ? getEffectiveScore(knowledge[b.id].score, knowledge[b.id].last_tested) : 0
+      return ea - eb
+    })
+    const candidates = sorted.slice(0, Math.min(3, sorted.length))
+    const concept = candidates[Math.floor(Math.random() * candidates.length)]
+    const q = selectQuestion(concept.id, questions)
+    if (q) return { concept, question: q }
+  }
+  return null
+}
+
+/** Natural-numeric compare so "13.1" < "13.2" < "14" and "1+2" sorts sanely. */
+function naturalCompare(a: string, b: string): number {
+  const ax = a.split(/(\d+)/).filter(Boolean)
+  const bx = b.split(/(\d+)/).filter(Boolean)
+  for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
+    const aPart = ax[i] ?? ''
+    const bPart = bx[i] ?? ''
+    const aNum = parseInt(aPart)
+    const bNum = parseInt(bPart)
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      if (aNum !== bNum) return aNum - bNum
+    } else {
+      if (aPart !== bPart) return aPart < bPart ? -1 : 1
+    }
+  }
+  return 0
 }
 
 function selectQuestion(conceptId: string, questions: Question[]): Question | null {
