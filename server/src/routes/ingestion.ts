@@ -281,7 +281,11 @@ interface GeneratedQuestion {
 async function generateForConcept(
   concept: { name: string; description: string; key_facts: string[]; difficulty: number },
   moduleSlug: string | undefined,
-  userId: string | null
+  userId: string | null,
+  /** Existing question stems for this concept — passed to the model as a
+   *  "don't repeat these angles" hint, and used as a post-hoc filter so any
+   *  generated question that exactly matches an existing one is dropped. */
+  existingQuestions: string[] = []
 ): Promise<{
   concept_name: string
   questions: (GeneratedQuestion & { source_chunk_ids: string[] })[]
@@ -348,6 +352,13 @@ Return ONLY a JSON object (no markdown):
   ]
 }`
 
+  // When this is a top-up call (the concept already has questions), tell
+  // the model exactly what's already been asked so it picks fresh angles
+  // instead of regenerating slight rewordings. Skipped for first-pass gen.
+  const existingBlock = existingQuestions.length > 0
+    ? `\n\nEXISTING QUESTIONS (DO NOT REPEAT)\nThese questions have already been written for this concept. Write questions about DIFFERENT angles, sub-topics, or details. Do not paraphrase or reword the questions below — if you find yourself rewording one of them, drop the question instead.\n\n${existingQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+    : ''
+
   const userContent = `CONCEPT
 Name: ${concept.name}
 Description: ${concept.description}
@@ -355,7 +366,7 @@ Key facts: ${concept.key_facts.join('; ')}
 
 SOURCE CHUNKS
 
-${chunkBlock}`
+${chunkBlock}${existingBlock}`
 
   const response = await withRetry(() => anthropic.messages.create({
     model: SONNET_MODEL,
@@ -397,6 +408,9 @@ ${chunkBlock}`
     text: normaliseForMatch(ch.chunk_text),
   }))
 
+  // Pre-normalise existing questions for cheap fuzzy comparison.
+  const normalisedExisting = new Set(existingQuestions.map(normaliseForMatch))
+
   const validated: (GeneratedQuestion & { source_chunk_ids: string[] })[] = []
   let dropped = 0
   for (const q of rawQuestions) {
@@ -419,6 +433,13 @@ ${chunkBlock}`
       .filter(ch => ch.text.includes(needle))
       .map(ch => ch.id)
     if (matchingChunkIds.length === 0) {
+      dropped++
+      continue
+    }
+    // Belt-and-braces: drop any question whose normalised stem matches an
+    // existing one verbatim. The semantic dedup script catches the more
+    // subtle near-dupes; this just kills the obvious copies.
+    if (normalisedExisting.has(normaliseForMatch(q.question))) {
       dropped++
       continue
     }
@@ -447,7 +468,16 @@ ${chunkBlock}`
 // Generate questions for concepts (per-concept RAG-grounded)
 app.post('/generate-questions', async (c) => {
   const { concepts, module_name, module } = await c.req.json() as {
-    concepts: { name: string; description: string; key_facts: string[]; difficulty: number }[]
+    concepts: {
+      name: string
+      description: string
+      key_facts: string[]
+      difficulty: number
+      /** Optional: existing question stems for this concept. When present,
+       *  the generator is told not to repeat them and any literal rewording
+       *  is dropped post-hoc. Used by the "Top up sparse" admin action. */
+      existing_questions?: string[]
+    }[]
     module_name?: string
     module?: string
   }
@@ -466,7 +496,9 @@ app.post('/generate-questions', async (c) => {
   const results: Awaited<ReturnType<typeof generateForConcept>>[] = []
   for (let i = 0; i < concepts.length; i += CONCURRENCY) {
     const batch = concepts.slice(i, i + CONCURRENCY)
-    const batchResults = await Promise.all(batch.map(co => generateForConcept(co, module, userId)))
+    const batchResults = await Promise.all(
+      batch.map((co) => generateForConcept(co, module, userId, co.existing_questions ?? []))
+    )
     results.push(...batchResults)
   }
 
