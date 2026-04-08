@@ -15,6 +15,7 @@ import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
 import { ModulesPage } from '@/components/modules/ModulesPage'
+import { LeaderboardPage } from '@/components/leaderboard/LeaderboardPage'
 import { LegalPage } from '@/components/legal/LegalPage'
 import { hydrateStore } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
@@ -51,6 +52,7 @@ function ProtectedApp() {
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/progress" element={<ProgressPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/search" element={<MaterialSearchPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/terms" element={<LegalPage doc="terms" />} />

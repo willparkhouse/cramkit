@@ -1,7 +1,52 @@
 import * as api from '@/lib/api'
 import { useAppStore } from '@/store/useAppStore'
+import { supabase } from '@/lib/supabase'
 import type { Concept, Question } from '@/types'
 import type { UploadedFile } from '@/components/ingestion/FileUploader'
+
+/**
+ * Parse the leading lecture id from a notes filename.
+ *
+ * Conventions seen across modules:
+ *   "1. Topic.md"           -> "1"
+ *   "7.1 Topic.md"          -> "7.1"
+ *   "13. EMV Lecture.md"    -> "13"
+ *   "1+2. Intro.md"         -> "1+2"
+ *   "Topic.md"              -> null
+ */
+function parseLectureId(filename: string): string | null {
+  const stem = filename.replace(/\.(md|txt)$/i, '')
+  const m = stem.match(/^([\d.+]+)[.\s]+/)
+  if (!m) return null
+  return m[1].replace(/\.$/, '')
+}
+
+/**
+ * Build a `lecture id → canonical week` map by querying the `sources` table
+ * for the given module slug. `sources` is populated from the CSV manifest and
+ * is the authoritative truth for "which lecture is in which week" — far more
+ * reliable than parsing it out of notes filenames, which use mixed conventions
+ * across modules (NC names by week, SRWS names by lecture id, etc).
+ */
+async function buildLectureToWeekMap(moduleSlug: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('sources')
+    .select('lecture, week, source_type')
+    .eq('module', moduleSlug)
+  if (error) {
+    console.warn(`Failed to load sources for module ${moduleSlug}:`, error.message)
+    return new Map()
+  }
+  const map = new Map<string, number>()
+  // Insert slides first, then lectures, so lecture rows win on collision.
+  const sorted = [...(data ?? [])].sort((a, b) => (a.source_type === 'lecture' ? 1 : -1))
+  for (const row of sorted) {
+    if (!row.lecture || row.week === null) continue
+    const key = String(row.lecture).replace(/\.$/, '').trim()
+    if (key) map.set(key, row.week)
+  }
+  return map
+}
 
 export interface IngestionCallbacks {
   onStageChange: (stage: string) => void
@@ -36,20 +81,36 @@ export async function extractConcepts(
   type ExtractedConcept = { name: string; description: string; key_facts: string[]; difficulty: number; source_excerpt: string; week: number | null; lecture: string | null }
   const moduleConceptMap = new Map<string, { module_id: string; module_name: string; concepts: ExtractedConcept[] }>()
 
+  // Per-module lecture→week lookup, lazily built once per module on first use.
+  // The map's key is a normalised lecture id (e.g. "13.1") and the value is
+  // the canonical week from `sources`.
+  const moduleLectureMaps = new Map<string, Map<string, number>>()
+  async function getLectureMap(slug: string | undefined): Promise<Map<string, number>> {
+    if (!slug) return new Map()
+    let m = moduleLectureMaps.get(slug)
+    if (!m) {
+      m = await buildLectureToWeekMap(slug)
+      moduleLectureMaps.set(slug, m)
+    }
+    return m
+  }
+
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
     const exam = exams.find((e) => e.id === file.moduleId)
     const moduleName = exam?.name || 'Unknown'
     callbacks.onProgress(i, files.length, `Extracting from ${file.filename}`)
 
-    // We used to auto-extract `week` from the leading number in the filename,
-    // but with mixed conventions (notes/slides/transcripts can each name files
-    // by week OR by lecture id), this produced bogus weeks like 19. Concept
-    // grouping by week is a soft feature anyway — the source-chunk RAG retrieval
-    // is what actually grounds questions. Leave week null and use the filename
-    // (minus extension) as the lecture label.
-    const week = null
-    const lecture = file.filename.replace(/\.md$/i, '') || null
+    // Look up the canonical (week, lecture id) for this file by joining the
+    // parsed lecture id from its filename against the `sources` table for
+    // this module. This replaces the old leading-number-as-week heuristic,
+    // which was wrong for any module that names notes by lecture id (SRWS).
+    const lectureId = parseLectureId(file.filename)
+    const lectureMap = await getLectureMap(exam?.slug)
+    const week = lectureId ? (lectureMap.get(lectureId) ?? null) : null
+    // Store the lecture id (e.g. "13.1") rather than the topic title — that's
+    // the join key with `sources` and lets us build a stable filter UI.
+    const lecture = lectureId
 
     const result = await api.extractConcepts({
       notes: file.content,

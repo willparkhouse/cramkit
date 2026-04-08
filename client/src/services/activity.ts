@@ -87,6 +87,9 @@ export interface BumpActivityInput {
   questionsCorrect?: number
   activeSeconds?: number
   chatMessagesSent?: number
+  /** Module to attribute the bump to. Question events should pass this so the
+   *  per-module leaderboard works. Active time / chat usage stay null. */
+  moduleId?: string | null
 }
 
 export async function bumpStudyActivity(input: BumpActivityInput): Promise<void> {
@@ -96,6 +99,7 @@ export async function bumpStudyActivity(input: BumpActivityInput): Promise<void>
       p_questions_correct: input.questionsCorrect ?? 0,
       p_active_seconds: input.activeSeconds ?? 0,
       p_chat_messages_sent: input.chatMessagesSent ?? 0,
+      p_module_id: input.moduleId ?? null,
     })
     if (error) console.error('bumpStudyActivity failed:', error.message)
   } catch (e) {

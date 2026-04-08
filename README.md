@@ -5,6 +5,12 @@
 AI-powered exam revision built for University of Birmingham students.
 Live at **[cramkit.app](https://cramkit.app)**.
 
+> 💚 **Non-profit.** cramkit is run as a non-profit project. After hosting,
+> AI provider costs (Anthropic, OpenAI), and Stripe fees, **100% of remaining
+> subscription revenue is donated to the [Founders Pledge Climate Fund](https://founderspledge.com/funds/climate-change-fund)**.
+> The operator does not draw a salary. A yearly accounting of revenue, costs,
+> and donations is published on the website.
+
 ---
 
 ## What it does

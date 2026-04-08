@@ -61,6 +61,8 @@ The managed plan costs **£10 per month**, billed via Stripe. Your subscription 
 
 We may change pricing for future billing periods with at least 14 days' notice. You can cancel before the new price takes effect if you don't agree with the change.
 
+**Where your money goes.** cramkit is run as a non-profit project. After deducting hosting, AI provider costs (Anthropic, OpenAI), and payment processing fees, **100% of remaining subscription revenue is donated to the [Founders Pledge Climate Fund](https://founderspledge.com/funds/climate-change-fund)**. We commit to publishing a yearly accounting of revenue, costs, and donations on the website. The operator (William Parkhouse) does not draw a salary from cramkit.
+
 ## 6. Service availability and changes
 
 We try to keep cramkit available and working, but we don't guarantee uninterrupted service. We may take the service offline for maintenance, updates, or for any other reason, with or without notice. We may add, remove, or change features over time.

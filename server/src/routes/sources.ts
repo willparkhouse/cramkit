@@ -110,11 +110,18 @@ app.post('/source-search', async (c) => {
     MAX_MATCH_COUNT
   )
 
-  // Embed the query
-  const emb = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: query.trim(),
-  })
+  // Embed the query. Wrapped in try/catch so OpenAI outages or rate limits
+  // surface as a clean 502 instead of an uncaught 500 with stack trace.
+  let emb: Awaited<ReturnType<typeof openai.embeddings.create>>
+  try {
+    emb = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: query.trim(),
+    })
+  } catch (err) {
+    console.error('source-search: openai embedding failed:', (err as Error).message)
+    return c.json({ error: 'Search temporarily unavailable. Please try again.' }, 502)
+  }
   const embedding = emb.data[0].embedding
 
   const user = c.get('user')

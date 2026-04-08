@@ -8,6 +8,7 @@ import {
   BarChart3,
   Settings,
   GraduationCap,
+  Trophy,
 } from 'lucide-react'
 
 function GithubIcon({ className }: { className?: string }) {
@@ -29,6 +30,7 @@ const allNavItems = [
   { to: '/quiz', icon: Brain, label: 'Quiz', adminOnly: false },
   { to: '/search', icon: Search, label: 'Search materials', adminOnly: false },
   { to: '/progress', icon: BarChart3, label: 'Progress', adminOnly: false },
+  { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', adminOnly: false },
   { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
   { to: '/admin', icon: Upload, label: 'Admin', adminOnly: true },
   { to: '/schedule', icon: Calendar, label: 'Schedule', adminOnly: true },
@@ -94,6 +96,15 @@ function AppShellInner() {
             <span>·</span>
             <NavLink to="/privacy" className="hover:text-foreground transition-colors">Privacy</NavLink>
           </div>
+          <a
+            href="https://founderspledge.com/funds/climate-change-fund"
+            target="_blank"
+            rel="noreferrer"
+            className="block px-2 text-[10px] text-muted-foreground hover:text-foreground transition-colors leading-snug"
+            title="Where your money goes"
+          >
+            100% of profits → Founders Pledge Climate Fund
+          </a>
         </div>
       </aside>
 

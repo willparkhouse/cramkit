@@ -1,11 +1,12 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { ExamCountdown } from './ExamCountdown'
 import { ModuleConfidence } from './ModuleConfidence'
 import { PriorityAllocation } from './PriorityAllocation'
 import { Button } from '@/components/ui/button'
 import { Link } from 'react-router-dom'
-import { Brain, GraduationCap } from 'lucide-react'
+import { Brain, GraduationCap, Trophy, Loader2 } from 'lucide-react'
+import { fetchLeaderboard, fetchMyLeaderboardRank, type LeaderboardRow, type MyRank } from '@/services/leaderboard'
 
 export function DashboardPage() {
   const allExams = useAppStore((s) => s.exams)
@@ -81,6 +82,77 @@ export function DashboardPage() {
           <StatCard label="Concepts" value={concepts.length} />
           <QuestionsStatCard />
           <SessionsStatCard />
+        </div>
+      )}
+
+      {/* Leaderboard preview */}
+      <LeaderboardWidget />
+    </div>
+  )
+}
+
+function LeaderboardWidget() {
+  const [rows, setRows] = useState<LeaderboardRow[]>([])
+  const [myRank, setMyRank] = useState<MyRank | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetchLeaderboard({ window: 'week', moduleId: null, limit: 5 }),
+      fetchMyLeaderboardRank({ window: 'week', moduleId: null }),
+    ]).then(([leaderboard, rank]) => {
+      if (cancelled) return
+      setRows(leaderboard)
+      setMyRank(rank)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">Leaderboard · this week</span>
+        </div>
+        <Link to="/leaderboard" className="text-xs text-primary hover:underline">
+          See all
+        </Link>
+      </div>
+      {loading ? (
+        <div className="py-6 flex justify-center">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="py-6 text-center text-xs text-muted-foreground">
+          No one has answered any questions this week yet. Be first.
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {rows.map((row) => {
+            const medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : null
+            return (
+              <div
+                key={row.user_id}
+                className={`grid grid-cols-[2.5rem_1fr_4rem] gap-3 px-4 py-2 text-sm tabular-nums ${
+                  row.is_self ? 'bg-primary/10 font-medium' : ''
+                }`}
+              >
+                <div className="text-muted-foreground">{medal ?? `#${row.rank}`}</div>
+                <div className="truncate">{row.display_name}</div>
+                <div className="text-right">{row.questions_answered}</div>
+              </div>
+            )
+          })}
+          {myRank && !rows.some((r) => r.is_self) && (
+            <div className="grid grid-cols-[2.5rem_1fr_4rem] gap-3 px-4 py-2 text-sm tabular-nums bg-primary/10 font-medium">
+              <div className="text-muted-foreground">#{myRank.rank}</div>
+              <div className="truncate">You</div>
+              <div className="text-right">{myRank.questions_answered}</div>
+            </div>
+          )}
         </div>
       )}
     </div>

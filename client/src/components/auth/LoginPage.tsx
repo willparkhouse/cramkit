@@ -133,8 +133,17 @@ export function LoginPage() {
       </main>
 
       <footer className="px-6 py-6 flex flex-col items-center gap-2">
-        <p className="text-xs text-muted-foreground">
-          Built for May 2026 exams · BYOK Anthropic for AI features
+        <p className="text-xs text-muted-foreground text-center max-w-md">
+          Non-profit. 100% of subscription revenue (after costs) goes to the{' '}
+          <a
+            href="https://founderspledge.com/funds/climate-change-fund"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            Founders Pledge Climate Fund
+          </a>
+          .
         </p>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <a

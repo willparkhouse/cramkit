@@ -12,7 +12,7 @@ FROM node:22-alpine AS client-build
 WORKDIR /app/client
 
 COPY client/package.json client/package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm install --prefer-offline --no-audit --no-fund
 
 COPY client/ ./
 
@@ -30,7 +30,7 @@ FROM node:22-alpine AS server-build
 WORKDIR /app/server
 
 COPY server/package.json server/package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm install --prefer-offline --no-audit --no-fund
 
 COPY server/ ./
 RUN npm run build
@@ -43,7 +43,7 @@ ENV NODE_ENV=production
 ENV PORT=3001
 
 COPY server/package.json server/package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm install --omit=dev --prefer-offline --no-audit --no-fund
 
 COPY --from=server-build /app/server/dist ./dist
 COPY --from=client-build /app/client/dist ./public

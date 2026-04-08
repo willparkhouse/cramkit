@@ -60,6 +60,26 @@ if (existsSync(staticDir)) {
   }
 }
 
+// Loud warnings at boot for any misconfig that would silently break a feature
+// later. Better to see this on every container start than to debug a 500 in
+// front of a paying customer.
+function checkConfig() {
+  const required = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']
+  for (const key of required) {
+    if (!process.env[key]) console.warn(`[config] ${key} is not set — related features will fail`)
+  }
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.warn('[config] STRIPE_SECRET_KEY not set — billing routes will 500')
+  }
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn('[config] STRIPE_WEBHOOK_SECRET not set — Stripe webhooks will be rejected and subscriptions will not auto-sync')
+  }
+  if (!process.env.STRIPE_PRICE_ID) {
+    console.warn('[config] STRIPE_PRICE_ID not set — checkout will use the hardcoded fallback price')
+  }
+}
+checkConfig()
+
 const port = parseInt(process.env.PORT || '3001')
 
 console.log(`cramkit server running on http://localhost:${port}`)
