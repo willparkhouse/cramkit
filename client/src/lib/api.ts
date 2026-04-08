@@ -152,7 +152,14 @@ export async function adminLinkModuleRequest(id: string, examId: string | null):
 
 export async function adminUpdateModule(
   id: string,
-  patch: Partial<{ name: string; slug: string; date: string; weight: number; semester: number }>
+  patch: Partial<{
+    name: string
+    slug: string
+    date: string
+    weight: number
+    semester: number
+    is_published: boolean
+  }>
 ): Promise<Exam> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not authenticated')
