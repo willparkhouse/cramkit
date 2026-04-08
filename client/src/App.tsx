@@ -16,6 +16,7 @@ import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
 import { ModulesPage } from '@/components/modules/ModulesPage'
 import { LeaderboardPage } from '@/components/leaderboard/LeaderboardPage'
+import { PublishNotificationToast } from '@/components/notifications/PublishNotificationToast'
 import { LegalPage } from '@/components/legal/LegalPage'
 import { hydrateStore } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
@@ -68,6 +69,7 @@ function ProtectedApp() {
         </Route>
       </Routes>
       <SetupWizard />
+      <PublishNotificationToast />
     </>
   )
 }

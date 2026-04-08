@@ -70,6 +70,15 @@ export async function generateQuestions(req: GenerateQuestionsRequest): Promise<
 
 export interface AdminModule extends Exam {
   coverage: { slide_decks: number; lectures: number; chunks: number }
+  questions: {
+    concepts: number
+    /** concepts with 0 questions */
+    with_zero: number
+    /** concepts with 1–2 questions (sparse) */
+    with_low: number
+    /** concepts with ≥3 questions (healthy) */
+    with_ok: number
+  }
 }
 
 export interface AdminSource {
@@ -103,6 +112,71 @@ export async function adminCreateModule(input: {
 }): Promise<Exam> {
   const { module } = await authedPost<{ module: Exam }>('/api/admin/modules', input)
   return module
+}
+
+export interface AdminModuleRequest {
+  id: string
+  name: string
+  description: string | null
+  requested_by: string | null
+  status: string
+  created_at: string
+  linked_exam_id: string | null
+  vote_count: number
+}
+
+export async function adminListModuleRequests(): Promise<AdminModuleRequest[]> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch('/api/admin/module-requests', {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { requests } = await res.json()
+  return requests as AdminModuleRequest[]
+}
+
+export async function adminLinkModuleRequest(id: string, examId: string | null): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/module-requests/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ linked_exam_id: examId }),
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+}
+
+export async function adminUpdateModule(
+  id: string,
+  patch: Partial<{ name: string; slug: string; date: string; weight: number; semester: number }>
+): Promise<Exam> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/modules/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { module } = await res.json()
+  return module as Exam
+}
+
+export async function adminDeleteModule(id: string, confirmSlug: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/modules/${id}?confirm=${encodeURIComponent(confirmSlug)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
 }
 
 export async function adminListSources(moduleSlug: string): Promise<AdminSource[]> {
@@ -469,6 +543,48 @@ export async function createModuleRequest(name: string, description: string): Pr
   return data as ModuleRequest
 }
 
+/**
+ * Express interest in an unpublished module that already exists. Looks for
+ * an existing request linked to this exam — if none, creates one — then
+ * casts the user's vote on it. When the admin publishes the module, the
+ * publish trigger auto-enrolls everyone who voted.
+ */
+export async function expressInterestInModule(exam: Exam): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Find an existing request for this exam.
+  const { data: existing } = await supabase
+    .from('module_requests')
+    .select('id')
+    .eq('linked_exam_id', exam.id)
+    .maybeSingle()
+
+  let requestId: string
+  if (existing) {
+    requestId = existing.id as string
+  } else {
+    const { data: created, error: createErr } = await supabase
+      .from('module_requests')
+      .insert({
+        name: exam.name,
+        description: `Auto-created from in-app interest in unpublished module ${exam.slug}`,
+        requested_by: user.id,
+        linked_exam_id: exam.id,
+      })
+      .select('id')
+      .single()
+    if (createErr) throw createErr
+    requestId = created.id as string
+  }
+
+  // Cast the vote (idempotent — ignore unique violation).
+  const { error: voteErr } = await supabase
+    .from('module_request_votes')
+    .insert({ request_id: requestId, user_id: user.id })
+  if (voteErr && voteErr.code !== '23505') throw voteErr
+}
+
 export async function voteForRequest(requestId: string): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
@@ -507,13 +623,49 @@ export async function fetchConcepts(enrolledModuleIds: string[]): Promise<Concep
   return (data || []) as Concept[]
 }
 
+/**
+ * Page through all concepts (with their question id list) to bypass the
+ * default 1000-row PostgREST limit. We have ~400 concepts and ~1800 questions
+ * across the bank — without paging, the second page silently disappears and
+ * any concept past row 1000 looks like it has no questions.
+ */
+async function fetchAllConceptsWithQuestionIds(): Promise<Array<Concept & { questions: { id: string }[] }>> {
+  const PAGE = 1000
+  const out: Array<Concept & { questions: { id: string }[] }> = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('concepts')
+      .select('*, questions(id)')
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    const rows = (data || []) as Array<Concept & { questions: { id: string }[] }>
+    out.push(...rows)
+    if (rows.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
 export async function fetchConceptsMissingQuestions(): Promise<Concept[]> {
-  const { data, error } = await supabase
-    .from('concepts')
-    .select('*, questions(id)')
-  if (error) throw error
-  return ((data || []) as Array<Concept & { questions: { id: string }[] }>)
+  const all = await fetchAllConceptsWithQuestionIds()
+  return all
     .filter((c) => !c.questions || c.questions.length === 0)
+    .map((c) => {
+      const { questions, ...rest } = c
+      void questions
+      return rest as Concept
+    })
+}
+
+/**
+ * Fetch concepts whose question count is below a threshold (default <3).
+ * Used by the admin status page's "Top up sparse" action.
+ */
+export async function fetchConceptsBelowQuestionThreshold(threshold = 3): Promise<Concept[]> {
+  const all = await fetchAllConceptsWithQuestionIds()
+  return all
+    .filter((c) => (c.questions?.length ?? 0) < threshold)
     .map((c) => {
       const { questions, ...rest } = c
       void questions

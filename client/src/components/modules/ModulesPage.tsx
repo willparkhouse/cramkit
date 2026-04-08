@@ -6,7 +6,7 @@ import { refreshEnrollments } from '@/store/hydrate'
 import * as api from '@/lib/api'
 import { MODULE_COLOURS, MODULE_SHORT_NAMES } from '@/lib/constants'
 import { formatDate, daysUntil } from '@/lib/utils'
-import { Plus, ThumbsUp, Loader2, GraduationCap, X } from 'lucide-react'
+import { Plus, ThumbsUp, Loader2, GraduationCap, X, Bell, CheckCircle, Clock } from 'lucide-react'
 import type { ModuleRequest } from '@/types'
 
 export function ModulesPage() {
@@ -51,7 +51,12 @@ export function ModulesPage() {
   }, [loadRequests])
 
   const enrolled = exams.filter((e) => enrolledModuleIds.includes(e.id))
-  const available = exams.filter((e) => !enrolledModuleIds.includes(e.id))
+  // Only published modules are openly enrollable. Unpublished modules show
+  // up in the "Coming soon" list with a "Notify me" action that creates a
+  // module_requests row linked to the exam — when the admin flips the
+  // is_published flag, the publish trigger auto-enrolls the requester.
+  const available = exams.filter((e) => !enrolledModuleIds.includes(e.id) && e.is_published !== false)
+  const upcoming = exams.filter((e) => !enrolledModuleIds.includes(e.id) && e.is_published === false)
 
   const handleEnroll = async (moduleId: string) => {
     setBusy(moduleId)
@@ -68,6 +73,21 @@ export function ModulesPage() {
     try {
       await api.unenrollFromModule(moduleId)
       await refreshEnrollments()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Express interest in an unpublished module — creates/votes on a linked
+  // request behind the scenes. The publish trigger auto-enrolls voters.
+  const [interestSet, setInterestSet] = useState<Set<string>>(new Set())
+  const handleExpressInterest = async (exam: typeof exams[number]) => {
+    setBusy(exam.id)
+    try {
+      await api.expressInterestInModule(exam)
+      setInterestSet((s) => new Set(s).add(exam.id))
+    } catch (err) {
+      console.error('Failed to express interest:', err)
     } finally {
       setBusy(null)
     }
@@ -155,6 +175,33 @@ export function ModulesPage() {
         </section>
       )}
 
+      {/* Coming soon — modules that exist but aren't published yet. Users can
+          flag interest; the publish trigger auto-enrolls them when it drops. */}
+      {upcoming.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Coming soon ({upcoming.length})
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            These modules are being prepared. Tap "Notify me" and we'll auto-enrol you the moment they're ready.
+          </p>
+          <div className="grid gap-2 md:grid-cols-2">
+            {upcoming.map((exam) => {
+              const interested = interestSet.has(exam.id)
+              return (
+                <UpcomingModuleRow
+                  key={exam.id}
+                  exam={exam}
+                  busy={busy === exam.id}
+                  interested={interested}
+                  onAction={() => handleExpressInterest(exam)}
+                />
+              )
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Requested by other students — surfaced first so users notice them */}
       {!loading && sortedRequests.length > 0 && (
         <section className="space-y-2">
@@ -236,6 +283,47 @@ export function ModulesPage() {
           </div>
         </form>
       </section>
+    </div>
+  )
+}
+
+function UpcomingModuleRow({
+  exam,
+  busy,
+  interested,
+  onAction,
+}: {
+  exam: { id: string; name: string; date: string; weight: number }
+  busy: boolean
+  interested: boolean
+  onAction: () => void
+}) {
+  const colour = MODULE_COLOURS[exam.name] || '#888'
+  const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2.5 py-2 border border-dashed border-border/60 bg-muted/20">
+      <div className="w-2.5 h-2.5 rounded-sm shrink-0 opacity-60" style={{ backgroundColor: colour }} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate leading-tight">{exam.name}</p>
+        <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+          <Clock className="h-3 w-3" /> {shortName} · in preparation
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant={interested ? 'ghost' : 'outline'}
+        onClick={onAction}
+        disabled={busy || interested}
+        className="shrink-0 h-7 px-2.5 text-xs"
+      >
+        {busy ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : interested ? (
+          <><CheckCircle className="mr-1 h-3 w-3" /> Notified</>
+        ) : (
+          <><Bell className="mr-1 h-3 w-3" /> Notify me</>
+        )}
+      </Button>
     </div>
   )
 }

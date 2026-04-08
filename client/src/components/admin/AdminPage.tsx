@@ -4,22 +4,29 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { IngestionPage } from '@/components/ingestion/IngestionPage'
+import { retryFailedQuestions, topUpSparseQuestions } from '@/services/ingestion'
+import { MODULE_COLOURS } from '@/lib/constants'
 import {
   adminListModules,
   adminCreateModule,
+  adminUpdateModule,
+  adminDeleteModule,
   adminListSources,
   adminDeleteSource,
   adminUploadSlides,
   adminUploadTranscript,
+  adminListModuleRequests,
+  adminLinkModuleRequest,
   type AdminModule,
   type AdminSource,
+  type AdminModuleRequest,
 } from '@/lib/api'
-import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle } from 'lucide-react'
+import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle, CheckCircle, RefreshCw, Sparkles, MinusCircle, Pencil, Bell, ThumbsUp } from 'lucide-react'
 
-type TabKey = 'modules' | 'slides' | 'transcripts' | 'notes'
+type TabKey = 'status' | 'slides' | 'transcripts' | 'notes' | 'requests'
 
 export function AdminPage() {
-  const [tab, setTab] = useState<TabKey>('modules')
+  const [tab, setTab] = useState<TabKey>('status')
   const [modules, setModules] = useState<AdminModule[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Module selection is shared across the slides/transcripts/notes tabs so the
@@ -62,14 +69,15 @@ export function AdminPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
         <TabsList className="mb-4">
-          <TabsTrigger value="modules"><BookOpen className="h-4 w-4 mr-1.5" />Modules</TabsTrigger>
+          <TabsTrigger value="status"><BookOpen className="h-4 w-4 mr-1.5" />Status</TabsTrigger>
           <TabsTrigger value="slides"><FileText className="h-4 w-4 mr-1.5" />Slides</TabsTrigger>
-          <TabsTrigger value="transcripts"><Mic className="h-4 w-4 mr-1.5" />Transcripts</TabsTrigger>
+          <TabsTrigger value="transcripts"><Mic className="h-4 w-4 mr-1.5" />Lecture transcripts</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger value="requests"><Bell className="h-4 w-4 mr-1.5" />Requests</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="modules">
-          <ModulesTab modules={modules} onChange={reload} />
+        <TabsContent value="status">
+          <StatusTab modules={modules} onChange={reload} />
         </TabsContent>
 
         <TabsContent value="slides">
@@ -83,7 +91,105 @@ export function AdminPage() {
         <TabsContent value="notes">
           <NotesTab modules={modules ?? []} moduleSlug={moduleSlug} setModuleSlug={setModuleSlug} />
         </TabsContent>
+
+        <TabsContent value="requests">
+          <RequestsTab modules={modules ?? []} />
+        </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Requests tab — see student-submitted module requests, and link them to a
+// real exam row. Once linked + the linked exam publishes, the requester +
+// voters get auto-enrolled by the publish trigger.
+// ----------------------------------------------------------------------------
+
+function RequestsTab({ modules }: { modules: AdminModule[] }) {
+  const [requests, setRequests] = useState<AdminModuleRequest[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const reload = useCallback(async () => {
+    try {
+      const data = await adminListModuleRequests()
+      setRequests(data)
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }, [])
+
+  useEffect(() => { void reload() }, [reload])
+
+  const onLinkChange = async (id: string, value: string) => {
+    setBusy(id)
+    setErr(null)
+    try {
+      await adminLinkModuleRequest(id, value || null)
+      await reload()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (requests === null) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+  if (requests.length === 0) {
+    return <p className="text-sm text-muted-foreground">No module requests yet.</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      {err && <div className="text-sm text-destructive">{err}</div>}
+      <p className="text-xs text-muted-foreground">
+        Linking a request to a real module means: when you publish that module, the requester and everyone who voted gets auto-enrolled and a "your module just dropped" toast on next login.
+      </p>
+      {requests.map((req) => {
+        const linked = req.linked_exam_id ? modules.find((m) => m.id === req.linked_exam_id) : null
+        return (
+          <Card key={req.id}>
+            <CardContent className="pt-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-sm">{req.name}</div>
+                  {req.description && (
+                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{req.description}</div>
+                  )}
+                  <div className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-3">
+                    <span className="inline-flex items-center gap-1"><ThumbsUp className="h-3 w-3" /> {req.vote_count} votes</span>
+                    <span>status: {req.status}</span>
+                    <span>{new Date(req.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                {linked && (
+                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-medium shrink-0">
+                    Linked
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground shrink-0">Link to module:</span>
+                <select
+                  className="border border-border rounded-md bg-background px-2 py-1 text-xs flex-1 min-w-0"
+                  value={req.linked_exam_id ?? ''}
+                  onChange={(e) => onLinkChange(req.id, e.target.value)}
+                  disabled={busy === req.id}
+                >
+                  <option value="">— not linked —</option>
+                  {modules.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.slug}){m.is_published === false ? ' · draft' : ''}
+                    </option>
+                  ))}
+                </select>
+                {busy === req.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   )
 }
@@ -120,11 +226,113 @@ function NotesTab({
 // Modules tab — list + create
 // ----------------------------------------------------------------------------
 
-function ModulesTab({ modules, onChange }: { modules: AdminModule[] | null; onChange: () => void }) {
+function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onChange: () => void }) {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ name: '', slug: '', date: '', weight: 0.25, semester: 2 })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // Per-module action state — keyed by module id so two modules can run in
+  // parallel without overwriting each other's progress text.
+  const [actionState, setActionState] = useState<Record<string, { kind: 'retry' | 'topup'; stage: string; current: number; total: number; detail: string } | null>>({})
+  const [lastResult, setLastResult] = useState<Record<string, string | null>>({})
+
+  // Per-module edit state. `null` = not editing; an object = inline form open.
+  type EditDraft = { name: string; slug: string; date: string; weight: number; semester: number }
+  const [editing, setEditing] = useState<Record<string, EditDraft | null>>({})
+  const [editBusy, setEditBusy] = useState<Record<string, boolean>>({})
+  const [editErr, setEditErr] = useState<Record<string, string | null>>({})
+
+  const startEdit = (m: AdminModule) => {
+    setEditErr((s) => ({ ...s, [m.id]: null }))
+    setEditing((s) => ({
+      ...s,
+      [m.id]: {
+        name: m.name,
+        slug: m.slug,
+        // date input wants YYYY-MM-DD
+        date: new Date(m.date).toISOString().slice(0, 10),
+        weight: m.weight,
+        semester: m.semester,
+      },
+    }))
+  }
+  const cancelEdit = (id: string) => setEditing((s) => ({ ...s, [id]: null }))
+  const saveEdit = async (id: string) => {
+    const draft = editing[id]
+    if (!draft) return
+    setEditBusy((s) => ({ ...s, [id]: true }))
+    setEditErr((s) => ({ ...s, [id]: null }))
+    try {
+      await adminUpdateModule(id, {
+        name: draft.name,
+        slug: draft.slug,
+        date: new Date(draft.date).toISOString(),
+        weight: draft.weight,
+        semester: draft.semester,
+      })
+      setEditing((s) => ({ ...s, [id]: null }))
+      onChange()
+    } catch (e) {
+      setEditErr((s) => ({ ...s, [id]: (e as Error).message }))
+    } finally {
+      setEditBusy((s) => ({ ...s, [id]: false }))
+    }
+  }
+
+  const togglePublish = async (m: AdminModule) => {
+    const next = !(m.is_published ?? true)
+    if (!next) {
+      const ok = window.confirm(
+        `Unpublish "${m.name}"? It will disappear from the available list and existing students will keep their enrollment.`
+      )
+      if (!ok) return
+    } else {
+      const ok = window.confirm(
+        `Publish "${m.name}"? Anyone who has tapped "Notify me" on this module will be auto-enrolled and see a toast on next login.`
+      )
+      if (!ok) return
+    }
+    setEditBusy((s) => ({ ...s, [m.id]: true }))
+    setEditErr((s) => ({ ...s, [m.id]: null }))
+    try {
+      await adminUpdateModule(m.id, { is_published: next })
+      onChange()
+    } catch (e) {
+      setEditErr((s) => ({ ...s, [m.id]: (e as Error).message }))
+    } finally {
+      setEditBusy((s) => ({ ...s, [m.id]: false }))
+    }
+  }
+
+  const deleteModule = async (m: AdminModule) => {
+    // Two-step confirm: warn about scope, then ask the user to retype the
+    // slug. The server-side confirm gate also requires the slug, so even a
+    // misbehaving client can't accidentally delete.
+    const ok = window.confirm(
+      `Delete module "${m.name}" (${m.slug})?\n\nThis removes:\n` +
+      `· ${m.coverage.slide_decks} slide deck(s) + their chunks\n` +
+      `· ${m.coverage.lectures} lecture transcript(s) + their chunks\n\n` +
+      `Concepts and questions WILL NOT be deleted (they're shared across modules).\n` +
+      `This cannot be undone.`
+    )
+    if (!ok) return
+    const typed = window.prompt(`Type the slug "${m.slug}" to confirm:`)
+    if (typed !== m.slug) {
+      setEditErr((s) => ({ ...s, [m.id]: 'Slug mismatch — delete cancelled.' }))
+      return
+    }
+    setEditBusy((s) => ({ ...s, [m.id]: true }))
+    setEditErr((s) => ({ ...s, [m.id]: null }))
+    try {
+      await adminDeleteModule(m.id, m.slug)
+      onChange()
+    } catch (e) {
+      setEditErr((s) => ({ ...s, [m.id]: (e as Error).message }))
+    } finally {
+      setEditBusy((s) => ({ ...s, [m.id]: false }))
+    }
+  }
 
   const submit = async () => {
     setErr(null)
@@ -147,38 +355,256 @@ function ModulesTab({ modules, onChange }: { modules: AdminModule[] | null; onCh
     }
   }
 
+  const runRetry = async (moduleId: string) => {
+    setLastResult((s) => ({ ...s, [moduleId]: null }))
+    setActionState((s) => ({ ...s, [moduleId]: { kind: 'retry', stage: 'starting…', current: 0, total: 0, detail: '' } }))
+    try {
+      const count = await retryFailedQuestions({
+        onStageChange: (stage) => setActionState((s) => ({ ...s, [moduleId]: { ...(s[moduleId] ?? { kind: 'retry', current: 0, total: 0, detail: '' }), stage } as typeof actionState[string] })),
+        onProgress: (current, total, detail) => setActionState((s) => ({ ...s, [moduleId]: { ...(s[moduleId] ?? { kind: 'retry', stage: '', current: 0, total: 0, detail: '' }), current, total, detail: detail ?? '' } as typeof actionState[string] })),
+      }, moduleId)
+      setLastResult((s) => ({ ...s, [moduleId]: `Retried ${count} concept${count === 1 ? '' : 's'}` }))
+    } catch (e) {
+      setLastResult((s) => ({ ...s, [moduleId]: `Error: ${(e as Error).message}` }))
+    } finally {
+      setActionState((s) => ({ ...s, [moduleId]: null }))
+      onChange()
+    }
+  }
+
+  const runTopUp = async (moduleId: string) => {
+    setLastResult((s) => ({ ...s, [moduleId]: null }))
+    setActionState((s) => ({ ...s, [moduleId]: { kind: 'topup', stage: 'starting…', current: 0, total: 0, detail: '' } }))
+    try {
+      const count = await topUpSparseQuestions({
+        onStageChange: (stage) => setActionState((s) => ({ ...s, [moduleId]: { ...(s[moduleId] ?? { kind: 'topup', current: 0, total: 0, detail: '' }), stage } as typeof actionState[string] })),
+        onProgress: (current, total, detail) => setActionState((s) => ({ ...s, [moduleId]: { ...(s[moduleId] ?? { kind: 'topup', stage: '', current: 0, total: 0, detail: '' }), current, total, detail: detail ?? '' } as typeof actionState[string] })),
+      }, moduleId)
+      setLastResult((s) => ({ ...s, [moduleId]: `Topped up ${count} concept${count === 1 ? '' : 's'}` }))
+    } catch (e) {
+      setLastResult((s) => ({ ...s, [moduleId]: `Error: ${(e as Error).message}` }))
+    } finally {
+      setActionState((s) => ({ ...s, [moduleId]: null }))
+      onChange()
+    }
+  }
+
   if (modules === null) {
     return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
   }
 
   return (
     <div className="space-y-3">
-      {modules.map((m) => (
-        <Card key={m.id}>
-          <CardContent className="pt-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="font-medium">{m.name}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  slug: <code className="bg-muted px-1 py-0.5 rounded">{m.slug}</code> · exam{' '}
-                  {new Date(m.date).toLocaleDateString()}
+      {modules.map((m) => {
+        const colour = MODULE_COLOURS[m.name] || '#888'
+        const slidesOk = m.coverage.slide_decks > 0
+        const transcriptsOk = m.coverage.lectures > 0
+        const conceptsOk = m.questions.concepts > 0
+        const noChunks = m.coverage.chunks === 0
+        const action = actionState[m.id]
+        const result = lastResult[m.id]
+
+        const draft = editing[m.id]
+        const isEditing = !!draft
+        const eBusy = !!editBusy[m.id]
+        const eErr = editErr[m.id]
+
+        return (
+          <Card key={m.id}>
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-2.5 h-2.5 rounded-sm shrink-0 mt-1.5" style={{ backgroundColor: colour }} />
+                <div className="flex-1 min-w-0">
+                  {isEditing && draft ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Display name">
+                          <input
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                            value={draft.name}
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, name: e.target.value } }))}
+                          />
+                        </Field>
+                        <Field label="Slug">
+                          <input
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background font-mono"
+                            value={draft.slug}
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, slug: e.target.value } }))}
+                          />
+                        </Field>
+                        <Field label="Exam date">
+                          <input
+                            type="date"
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                            value={draft.date}
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, date: e.target.value } }))}
+                          />
+                        </Field>
+                        <Field label="Weight (0–1)">
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            max="1"
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                            value={draft.weight}
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, weight: parseFloat(e.target.value) } }))}
+                          />
+                        </Field>
+                        <Field label="Semester">
+                          <input
+                            type="number"
+                            min="1"
+                            max="2"
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                            value={draft.semester}
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, semester: parseInt(e.target.value) } }))}
+                          />
+                        </Field>
+                      </div>
+                      {eErr && <div className="text-xs text-destructive">{eErr}</div>}
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => saveEdit(m.id)} disabled={eBusy || !draft.name || !draft.slug || !draft.date}>
+                          {eBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => cancelEdit(m.id)} disabled={eBusy}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold text-sm flex items-center gap-2">
+                        {m.name}
+                        {m.is_published === false && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 uppercase tracking-wider font-medium">
+                            Draft
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        slug <code className="bg-muted px-1 py-0.5 rounded">{m.slug}</code> · exam{' '}
+                        {new Date(m.date).toLocaleDateString()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="text-right text-xs text-muted-foreground">
-                <div>{m.coverage.slide_decks} slide decks</div>
-                <div>{m.coverage.lectures} lectures</div>
-                <div>{m.coverage.chunks.toLocaleString()} chunks</div>
+
+              {/* Coverage row: slides / transcripts / notes / questions, each
+                  shown as a status pill so the user can scan all four at a glance. */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <StatusPill
+                  ok={slidesOk}
+                  label="Slides"
+                  detail={slidesOk ? `${m.coverage.slide_decks} deck${m.coverage.slide_decks === 1 ? '' : 's'}` : 'none'}
+                />
+                <StatusPill
+                  ok={transcriptsOk}
+                  label="Lecture transcripts"
+                  detail={transcriptsOk ? `${m.coverage.lectures} lecture${m.coverage.lectures === 1 ? '' : 's'}` : 'none'}
+                />
+                <StatusPill
+                  ok={conceptsOk}
+                  label="Notes / concepts"
+                  detail={conceptsOk ? `${m.questions.concepts} concept${m.questions.concepts === 1 ? '' : 's'}` : 'none'}
+                />
+                <StatusPill
+                  ok={m.questions.with_zero === 0 && m.questions.with_low === 0 && m.questions.concepts > 0}
+                  label="Questions"
+                  detail={
+                    m.questions.concepts === 0
+                      ? '—'
+                      : `${m.questions.with_ok}/${m.questions.concepts} healthy`
+                  }
+                  warn={m.questions.with_zero > 0 || m.questions.with_low > 0}
+                  subDetail={
+                    m.questions.concepts > 0 && (m.questions.with_zero > 0 || m.questions.with_low > 0)
+                      ? [
+                          m.questions.with_zero > 0 ? `${m.questions.with_zero} with no questions` : null,
+                          m.questions.with_low > 0 ? `${m.questions.with_low} with only 1–2` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')
+                      : undefined
+                  }
+                />
               </div>
-            </div>
-            {m.coverage.chunks === 0 && (
-              <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                <AlertCircle className="h-3 w-3" />
-                No source chunks yet — question generation will return 0 questions for this module.
+
+              {noChunks && (
+                <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <AlertCircle className="h-3 w-3" />
+                  No source chunks yet — question generation will return 0 questions for this module.
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                {!isEditing && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={m.is_published === false ? 'default' : 'outline'}
+                      onClick={() => togglePublish(m)}
+                      disabled={eBusy}
+                      title={m.is_published === false ? 'Publish (notifies + auto-enrolls interested users)' : 'Unpublish'}
+                    >
+                      {eBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                      {m.is_published === false ? 'Publish' : 'Unpublish'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => startEdit(m)} disabled={eBusy} title="Edit module">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => deleteModule(m)}
+                      disabled={eBusy}
+                      title="Delete module"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => runRetry(m.id)}
+                  disabled={!!action || m.questions.with_zero === 0}
+                >
+                  {action?.kind === 'retry' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                  Retry failed ({m.questions.with_zero})
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => runTopUp(m.id)}
+                  disabled={!!action || m.questions.with_low === 0}
+                  title="Generate more questions for concepts that have only 1–2 questions"
+                >
+                  {action?.kind === 'topup' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                  Top up sparse ({m.questions.with_low})
+                </Button>
+
+                {action && action.total > 0 && (
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {action.current}/{action.total}{action.detail ? ` · ${action.detail}` : ''}
+                  </span>
+                )}
+                {action && action.total === 0 && action.stage && (
+                  <span className="text-[11px] text-muted-foreground">{action.stage}</span>
+                )}
+                {result && !action && (
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" /> {result}
+                  </span>
+                )}
               </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        )
+      })}
 
       {creating ? (
         <Card>
@@ -214,6 +640,39 @@ function ModulesTab({ modules, onChange }: { modules: AdminModule[] | null; onCh
           <Plus className="h-4 w-4 mr-1.5" /> New module
         </Button>
       )}
+    </div>
+  )
+}
+
+function StatusPill({
+  ok,
+  label,
+  detail,
+  warn,
+  subDetail,
+}: {
+  ok: boolean
+  label: string
+  detail: string
+  warn?: boolean
+  /** Optional second line shown under `detail` in the same colour. Used by
+   *  the Questions pill to show "3 with no questions · 5 with only 1–2"
+   *  inline rather than as a separate row underneath the pill grid. */
+  subDetail?: string
+}) {
+  const tone = warn
+    ? 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400'
+    : ok
+    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400'
+    : 'border-muted bg-muted/30 text-muted-foreground'
+  return (
+    <div className={`rounded-md border px-2.5 py-1.5 ${tone}`}>
+      <div className="flex items-center gap-1.5">
+        {ok && !warn ? <CheckCircle className="h-3 w-3" /> : warn ? <AlertCircle className="h-3 w-3" /> : <MinusCircle className="h-3 w-3" />}
+        <span className="text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+      </div>
+      <div className="text-xs mt-0.5 tabular-nums">{detail}</div>
+      {subDetail && <div className="text-[10px] mt-0.5 opacity-80">{subDetail}</div>}
     </div>
   )
 }

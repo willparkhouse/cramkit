@@ -5,6 +5,8 @@ export interface Exam {
   date: string // ISO timestamp
   weight: number
   semester: number
+  is_published?: boolean
+  published_at?: string | null
 }
 
 export interface Concept {
@@ -99,7 +101,11 @@ export interface ExtractConceptsResponse {
 }
 
 export interface GenerateQuestionsRequest {
-  concepts: Pick<Concept, 'name' | 'description' | 'key_facts' | 'difficulty'>[]
+  concepts: (Pick<Concept, 'name' | 'description' | 'key_facts' | 'difficulty'> & {
+    /** Existing question stems for this concept — passed to the generator
+     *  as a "don't repeat these angles" hint. Only set during top-up. */
+    existing_questions?: string[]
+  })[]
   module_name: string
   /** Module slug for the source-chunk RAG retrieval (e.g. "neuralcomp"). */
   module?: string
