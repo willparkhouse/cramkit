@@ -13,6 +13,7 @@ import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
 import { requireAuth } from '../lib/auth.js'
 import { requirePro } from '../lib/entitlement.js'
 import { recordUsage } from '../lib/usage.js'
+import { rateLimit } from '../lib/rateLimit.js'
 
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
@@ -30,6 +31,7 @@ const FORMATTING_RULES = `Formatting rules — your output is rendered through a
 const MAX_MESSAGES = 40
 const MAX_MESSAGE_BYTES = 16_000        // per message content
 const MAX_CONTEXT_BYTES = 32_000        // concept context / chunks block
+const MAX_BODY_BYTES = 200_000          // total request body cap (defence in depth)
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -57,12 +59,28 @@ function validateMessages(raw: unknown): ChatMessage[] | null {
   return out
 }
 
-app.use('/chat', requireAuth, requirePro)
-app.use('/source-chat', requireAuth, requirePro)
-app.use('/evaluate', requireAuth, requirePro)
+// Rate limits are per-user and apply to ALL three Pro proxy endpoints. The
+// streaming endpoints (chat / source-chat) are the most expensive — a 20/min
+// cap means even if a user holds the throttle wide open, the worst-case
+// monthly burn is bounded to roughly 20 × 60 × 24 × 30 = ~860k requests, of
+// which only a fraction will hit the model (most will be empty/short).
+app.use('/chat', requireAuth, requirePro, rateLimit({ key: 'proxy-chat', windowMs: 60_000, max: 20 }))
+app.use('/source-chat', requireAuth, requirePro, rateLimit({ key: 'proxy-source-chat', windowMs: 60_000, max: 20 }))
+app.use('/evaluate', requireAuth, requirePro, rateLimit({ key: 'proxy-evaluate', windowMs: 60_000, max: 60 }))
+
+/**
+ * Reject obviously oversized request bodies before parsing them. Hono parses
+ * the body lazily on c.req.json(), so checking Content-Length up front is the
+ * cheapest way to reject a multi-MB DoS attempt without buffering it.
+ */
+function bodyTooLarge(c: { req: { header: (k: string) => string | undefined } }): boolean {
+  const len = parseInt(c.req.header('content-length') || '0', 10)
+  return Number.isFinite(len) && len > MAX_BODY_BYTES
+}
 
 // ---------- /api/chat (concept-context fallback chat) ----------
 app.post('/chat', async (c) => {
+  if (bodyTooLarge(c)) return c.json({ error: 'request too large' }, 413)
   const body = await c.req.json().catch(() => null) as { messages?: unknown; context?: unknown } | null
   if (!body) return c.json({ error: 'invalid body' }, 400)
 
@@ -117,6 +135,7 @@ ${context}`
 
 // ---------- /api/source-chat (RAG-grounded chat with citations) ----------
 app.post('/source-chat', async (c) => {
+  if (bodyTooLarge(c)) return c.json({ error: 'request too large' }, 413)
   const body = await c.req.json().catch(() => null) as { messages?: unknown; chunks?: unknown } | null
   if (!body) return c.json({ error: 'invalid body' }, 400)
 
@@ -191,6 +210,7 @@ ${sourcesBlock}`
 
 // ---------- /api/evaluate (free-form answer eval — non-streaming) ----------
 app.post('/evaluate', async (c) => {
+  if (bodyTooLarge(c)) return c.json({ error: 'request too large' }, 413)
   const body = await c.req.json().catch(() => null) as
     | { question?: unknown; correct_answer?: unknown; student_answer?: unknown }
     | null

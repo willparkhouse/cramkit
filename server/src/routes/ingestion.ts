@@ -3,15 +3,18 @@ import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
 import { requireAuth, requireAdmin } from '../lib/auth.js'
 import { retrieveChunks, type MatchedChunk } from '../lib/retrieval.js'
 import { recordUsage } from '../lib/usage.js'
+import { rateLimit } from '../lib/rateLimit.js'
 
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
 
 // Ingestion is admin-only — these routes burn the platform's Anthropic credits
-// so we can't expose them to arbitrary signed-in users.
-app.use('/extract-concepts', requireAuth, requireAdmin)
-app.use('/deduplicate', requireAuth, requireAdmin)
-app.use('/generate-questions', requireAuth, requireAdmin)
+// so we can't expose them to arbitrary signed-in users. Even with admin auth,
+// rate limits apply: a compromised / phished admin token shouldn't be able
+// to spam thousands of generations and burn the monthly budget in seconds.
+app.use('/extract-concepts', requireAuth, requireAdmin, rateLimit({ key: 'extract-concepts', windowMs: 60_000, max: 30 }))
+app.use('/deduplicate', requireAuth, requireAdmin, rateLimit({ key: 'deduplicate', windowMs: 60_000, max: 10 }))
+app.use('/generate-questions', requireAuth, requireAdmin, rateLimit({ key: 'generate-questions', windowMs: 60_000, max: 30 }))
 
 // Defence-in-depth caps to prevent a malicious admin (or compromised admin
 // account) from sending an arbitrarily large payload that runs up the bill.
