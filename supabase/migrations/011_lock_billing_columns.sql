@@ -26,25 +26,21 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  -- Service role bypasses RLS entirely and is the only legitimate writer of
-  -- billing fields (via the Stripe webhook handler). When the trigger runs
-  -- under the service role, current_setting('role') is 'service_role'.
-  -- For any other caller, we silently revert protected columns to OLD so
-  -- a malicious update reads as a no-op rather than an error.
-  if current_setting('request.jwt.claim.role', true) = 'service_role'
-     or current_user = 'service_role'
-     or current_user = 'postgres' then
-    return new;
+  -- auth.uid() returns the JWT-claimed user id for any client request via
+  -- PostgREST (anon or authenticated role) and NULL for direct postgres /
+  -- service-role connections. So "is this a client write?" is exactly
+  -- "is auth.uid() not null?". The earlier role-string detection didn't
+  -- work — Supabase's request runs under the `authenticator` role, not
+  -- `service_role`, so my bypass always matched and the revert never fired.
+  if auth.uid() is not null then
+    new.subscription_tier      := old.subscription_tier;
+    new.subscription_status    := old.subscription_status;
+    new.stripe_customer_id     := old.stripe_customer_id;
+    new.stripe_subscription_id := old.stripe_subscription_id;
+    new.current_period_end     := old.current_period_end;
+    -- email is the auth.users mirror; users shouldn't be able to spoof it
+    new.email                  := old.email;
   end if;
-
-  new.subscription_tier      := old.subscription_tier;
-  new.subscription_status    := old.subscription_status;
-  new.stripe_customer_id     := old.stripe_customer_id;
-  new.stripe_subscription_id := old.stripe_subscription_id;
-  new.current_period_end     := old.current_period_end;
-  -- email is the auth.users mirror; users shouldn't be able to spoof it
-  new.email                  := old.email;
-
   return new;
 end;
 $$;
