@@ -102,6 +102,16 @@ export function QuestionCard({
           previous: priorText,
         }),
       })
+      // Pro-gated server-side. Free users get 402 with a structured error.
+      // Render an upgrade message in the panel rather than a generic "failed".
+      if (res.status === 402) {
+        setHint({
+          phase: 'error',
+          level,
+          message: 'Hints are a Pro feature. Upgrade your plan in Settings to unlock them.',
+        })
+        return
+      }
       if (!res.ok || !res.body) {
         throw new Error(`Hint request failed: ${res.status}`)
       }

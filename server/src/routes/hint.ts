@@ -20,6 +20,7 @@ import { streamSSE } from 'hono/streaming'
 import { createClient } from '@supabase/supabase-js'
 import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
 import { requireAuth } from '../lib/auth.js'
+import { requirePro } from '../lib/entitlement.js'
 import { rateLimit } from '../lib/rateLimit.js'
 import { retrieveChunks } from '../lib/retrieval.js'
 import { recordUsage } from '../lib/usage.js'
@@ -27,10 +28,18 @@ import { recordUsage } from '../lib/usage.js'
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
 
+// Hints are a Pro-only perk because each click is a Sonnet call paid from
+// the platform's Anthropic credit. Free users either upgrade or use BYOK
+// (BYOK users could call Claude themselves from the browser, but the hint
+// feature deliberately runs server-side so the prompt + grounding logic
+// stays in one place — for free users without Pro, the button is gated).
+// Returns 402 on miss, which the client renders as an upgrade prompt.
+//
 // 30 hints per minute per user — generous, but blocks scripted abuse.
 app.use(
   '/question-hint',
   requireAuth,
+  requirePro,
   rateLimit({ key: 'question-hint', windowMs: 60_000, max: 30 })
 )
 
