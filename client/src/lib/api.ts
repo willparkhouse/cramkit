@@ -106,6 +106,7 @@ export async function adminListModules(): Promise<AdminModule[]> {
 export async function adminCreateModule(input: {
   name: string
   slug: string
+  short_name: string
   date: string
   weight: number
   semester: number
@@ -155,6 +156,7 @@ export async function adminUpdateModule(
   patch: Partial<{
     name: string
     slug: string
+    short_name: string
     date: string
     weight: number
     semester: number
@@ -241,6 +243,154 @@ export async function adminUploadTranscript(input: {
   transcript_text: string
 }): Promise<{ source_id: string; code: string; lines: number; chunks_inserted: number }> {
   return authedPost('/api/admin/sources/transcript', input)
+}
+
+// ----------------------------------------------------------------------------
+// Per-week lecture titles — see admin.ts for the underlying endpoint.
+// ----------------------------------------------------------------------------
+export interface WeekTitle {
+  week: number
+  concept_count: number
+  current_title: string | null
+}
+
+export async function adminListWeekTitles(moduleId: string): Promise<WeekTitle[]> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/modules/${moduleId}/week-titles`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { weeks } = await res.json()
+  return weeks as WeekTitle[]
+}
+
+export async function adminUpdateWeekTitles(
+  moduleId: string,
+  titles: Record<number, string | null>,
+): Promise<{ updated: number; weeks_set: number }> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/modules/${moduleId}/week-titles`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ titles }),
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  return res.json()
+}
+
+// ============================================================================
+// Admin content pipeline (extract → review → promote → generate questions)
+// ============================================================================
+
+export interface PipelineDraft {
+  id: string
+  module: string
+  status: 'pending' | 'running' | 'ready' | 'failed' | 'promoted' | 'discarded'
+  generated_at: string
+  promoted_at: string | null
+  error_message: string | null
+  progress: { weeks_total?: number; weeks_done?: number; last_week?: number | null; failures?: number[] } | null
+  total_concepts: number
+  by_week: Record<string, number>
+  has_coverage_report: boolean
+}
+
+export interface PipelineDraftFull {
+  id: string
+  module: string
+  status: PipelineDraft['status']
+  generated_at: string
+  promoted_at: string | null
+  error_message: string | null
+  progress: PipelineDraft['progress']
+  payload: {
+    module: string
+    generated_at: string
+    total_concepts: number
+    by_week: Record<string, number>
+    concepts: Array<{
+      name: string
+      description: string
+      key_facts: string[]
+      difficulty: number
+      source_chunk_ids: string[]
+      week: number | null
+      lecture: string | null
+    }>
+    coverage_report: string | null
+  }
+  coverage_report: string | null
+}
+
+export interface PipelineJob {
+  id: string
+  kind: 'extract' | 'promote' | 'generate-questions'
+  module: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  started_at: string
+  finished_at?: string
+  progress?: Record<string, unknown>
+  logs: string[]
+  result?: Record<string, unknown>
+  error?: string
+}
+
+async function authedGet<T>(url: string): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  return res.json()
+}
+
+export async function pipelineListDrafts(moduleSlug?: string): Promise<PipelineDraft[]> {
+  const url = moduleSlug
+    ? `/api/admin/pipeline/drafts?module=${encodeURIComponent(moduleSlug)}`
+    : '/api/admin/pipeline/drafts'
+  const { drafts } = await authedGet<{ drafts: PipelineDraft[] }>(url)
+  return drafts
+}
+
+export async function pipelineGetDraft(id: string): Promise<PipelineDraftFull> {
+  const { draft } = await authedGet<{ draft: PipelineDraftFull }>(`/api/admin/pipeline/drafts/${id}`)
+  return draft
+}
+
+export async function pipelineDiscardDraft(id: string): Promise<void> {
+  await authedPost(`/api/admin/pipeline/drafts/${id}/discard`, {})
+}
+
+export async function pipelineGetJob(id: string): Promise<PipelineJob> {
+  const { job } = await authedGet<{ job: PipelineJob }>(`/api/admin/pipeline/jobs/${id}`)
+  return job
+}
+
+export async function pipelineExtract(input: {
+  module: string
+  skip_coverage?: boolean
+  model?: 'sonnet' | 'haiku'
+}): Promise<{ job_id: string; draft_id: string }> {
+  return authedPost('/api/admin/pipeline/extract', input)
+}
+
+export async function pipelinePromote(input: {
+  draft_id: string
+  mode?: 'skip' | 'replace'
+  dry_run?: boolean
+}): Promise<{ result: { module: string; inserted: number; skipped: number; deleted: number; draft_id: string; dry_run: boolean } }> {
+  return authedPost('/api/admin/pipeline/promote', input)
+}
+
+export async function pipelineGenerateQuestions(input: {
+  module: string
+  scope?: 'missing' | 'all'
+}): Promise<{ job_id: string }> {
+  return authedPost('/api/admin/pipeline/generate-questions', input)
 }
 
 // ============================================================================

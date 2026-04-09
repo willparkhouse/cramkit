@@ -116,10 +116,15 @@ app.get('/admin/modules', async (c) => {
 
 app.post('/admin/modules', async (c) => {
   const body = await c.req.json()
-  const { name, slug, date, weight, semester } = body
+  const { name, slug, short_name, date, weight, semester } = body
   if (typeof name !== 'string' || !name.trim()) return c.json({ error: 'name required' }, 400)
   if (typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {
     return c.json({ error: 'slug required (lowercase a-z, 0-9, hyphen)' }, 400)
+  }
+  // Required for new modules — fallback constants only exist for the legacy
+  // hardcoded set, and we don't want new modules sneaking in nameless.
+  if (typeof short_name !== 'string' || !short_name.trim() || short_name.length > 12) {
+    return c.json({ error: 'short_name required (1-12 chars, e.g. "NLP", "AdvNet")' }, 400)
   }
   if (typeof date !== 'string') return c.json({ error: 'date (ISO) required' }, 400)
   if (typeof weight !== 'number') return c.json({ error: 'weight (number) required' }, 400)
@@ -130,7 +135,15 @@ app.post('/admin/modules', async (c) => {
   // before students see them. Flip via the publish button on the status tab.
   const { data, error } = await sb
     .from('exams')
-    .insert({ name: name.trim(), slug, date, weight, semester, is_published: false })
+    .insert({
+      name: name.trim(),
+      slug,
+      short_name: short_name.trim(),
+      date,
+      weight,
+      semester,
+      is_published: false,
+    })
     .select()
     .single()
   if (error) return c.json({ error: error.message }, 500)
@@ -149,6 +162,12 @@ app.patch('/admin/modules/:id', async (c) => {
   if (name !== undefined) {
     if (typeof name !== 'string' || !name.trim()) return c.json({ error: 'name must be non-empty' }, 400)
     patch.name = name.trim()
+  }
+  if (body.short_name !== undefined) {
+    if (typeof body.short_name !== 'string' || !body.short_name.trim() || body.short_name.length > 12) {
+      return c.json({ error: 'short_name must be 1-12 chars' }, 400)
+    }
+    patch.short_name = body.short_name.trim()
   }
   if (slug !== undefined) {
     if (typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {
@@ -415,6 +434,105 @@ app.post('/admin/sources/transcript', async (c) => {
     console.error('transcript ingest failed:', err)
     return c.json({ error: (err as Error).message }, 500)
   }
+})
+
+// ----------------------------------------------------------------------------
+// Per-week lecture titles
+//
+// The whole-week extraction pipeline writes concepts with `lecture = null`,
+// because it doesn't know what to call each week beyond its number. The
+// progress page groups concepts by (week, lecture), so without a label every
+// week shows up as just "Week N".
+//
+// This endpoint lets the admin type a title per week and apply it to every
+// concept in that (module, week) bucket. The progress UI then renders
+// "Week N: <title>" automatically — no other code change needed.
+// ----------------------------------------------------------------------------
+
+// GET — return the present weeks for a module along with the current title
+// (if any) and the concept count, so the editor can pre-populate.
+app.get('/admin/modules/:id/week-titles', async (c) => {
+  const id = c.req.param('id')
+  const sb = getServiceClient()
+
+  const { data: concepts, error } = await sb
+    .from('concepts')
+    .select('week, lecture')
+    .contains('module_ids', [id])
+  if (error) return c.json({ error: error.message }, 500)
+
+  // Group concepts by week, picking the most-common existing lecture title
+  // (if any) as the suggested current value. Skip concepts with null week.
+  const byWeek = new Map<number, { count: number; titles: Map<string, number> }>()
+  for (const row of concepts ?? []) {
+    if (row.week === null || row.week === undefined) continue
+    const week = row.week as number
+    const entry = byWeek.get(week) ?? { count: 0, titles: new Map<string, number>() }
+    entry.count++
+    if (row.lecture && typeof row.lecture === 'string') {
+      entry.titles.set(row.lecture, (entry.titles.get(row.lecture) ?? 0) + 1)
+    }
+    byWeek.set(week, entry)
+  }
+
+  const weeks = [...byWeek.entries()]
+    .map(([week, e]) => {
+      // Pick the most-popular existing title; ties resolved by insertion order.
+      let topTitle: string | null = null
+      let topCount = 0
+      for (const [t, n] of e.titles) {
+        if (n > topCount) {
+          topCount = n
+          topTitle = t
+        }
+      }
+      return { week, concept_count: e.count, current_title: topTitle }
+    })
+    .sort((a, b) => a.week - b.week)
+
+  return c.json({ weeks })
+})
+
+// PATCH — apply a {week: title} map. Each entry overwrites the `lecture`
+// column on every concept matching (module, week). Empty title clears the
+// label for that week back to null.
+app.patch('/admin/modules/:id/week-titles', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const titles = body.titles
+  if (!titles || typeof titles !== 'object') {
+    return c.json({ error: 'titles object required' }, 400)
+  }
+
+  const sb = getServiceClient()
+  const updates: { week: number; title: string | null }[] = []
+  for (const [weekStr, raw] of Object.entries(titles)) {
+    const week = parseInt(weekStr)
+    if (isNaN(week)) continue
+    if (raw !== null && typeof raw !== 'string') continue
+    const title = raw === null ? null : raw.toString().trim() || null
+    updates.push({ week, title })
+  }
+
+  let updated = 0
+  for (const u of updates) {
+    // Returning the affected rows so we can count them. The Supabase JS
+    // builder doesn't support a count option on update().select(), so we
+    // pull ids back and use the array length.
+    const { data, error } = await sb
+      .from('concepts')
+      .update({ lecture: u.title })
+      .contains('module_ids', [id])
+      .eq('week', u.week)
+      .select('id')
+    if (error) {
+      console.error(`week-titles update failed for week ${u.week}:`, error.message)
+      continue
+    }
+    updated += data?.length ?? 0
+  }
+
+  return c.json({ updated, weeks_set: updates.length })
 })
 
 export default app

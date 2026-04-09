@@ -7,7 +7,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "ingest:transcripts": "tsx scripts/ingest-transcripts.ts",
-    "ingest:slides": "tsx scripts/ingest-slides.ts"
+    "ingest:slides": "tsx scripts/ingest-slides.ts",
+    "extract:concepts": "tsx scripts/extract-concepts.ts",
+    "extract:experiment": "tsx scripts/extract-concepts-experiment.ts",
+    "import:concepts": "tsx scripts/import-concepts.ts",
+    "import:draft": "tsx scripts/import-json-as-draft.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_SHORT_NAMES } from '@/lib/constants'
+import { getModuleShortName } from '@/lib/constants'
 import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
 import { startConversation, logChatMessage, bumpStudyActivity } from '@/services/activity'
 import { renderWithCitations } from '@/lib/citations'
@@ -186,7 +186,7 @@ export function QuizPage() {
 
   // Build a one-line summary of the active filter state for the collapsed view
   const activeModuleName = filters.moduleId
-    ? MODULE_SHORT_NAMES[exams.find((e) => e.id === filters.moduleId)?.name || ''] || 'Module'
+    ? getModuleShortName(exams.find((e) => e.id === filters.moduleId)) || 'Module'
     : 'All modules'
   const activeMode = modes.find((m) => m.mode === filters.mode)?.label || 'Weakest'
   const selectClass = "w-full border border-border rounded-md bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"

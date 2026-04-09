@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { daysUntil, formatDate } from '@/lib/utils'
-import { MODULE_SHORT_NAMES } from '@/lib/constants'
+import { getModuleShortName } from '@/lib/constants'
 import { useModuleConfidence } from '@/store/selectors'
 import type { Exam } from '@/types'
 
@@ -13,7 +13,7 @@ interface ExamCountdownProps {
 export function ExamCountdown({ exam }: ExamCountdownProps) {
   const days = daysUntil(exam.date)
   const confidence = useModuleConfidence(exam.id)
-  const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+  const shortName = getModuleShortName(exam)
   const confidencePercent = Math.round(confidence * 100)
 
   const urgencyColor =

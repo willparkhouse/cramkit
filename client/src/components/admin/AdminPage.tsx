@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { IngestionPage } from '@/components/ingestion/IngestionPage'
+import { PipelineTab } from './PipelineTab'
 import { retryFailedQuestions, topUpSparseQuestions } from '@/services/ingestion'
 import { MODULE_COLOURS } from '@/lib/constants'
 import {
@@ -21,9 +22,9 @@ import {
   type AdminSource,
   type AdminModuleRequest,
 } from '@/lib/api'
-import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle, CheckCircle, RefreshCw, Sparkles, MinusCircle, Pencil, Bell, ThumbsUp } from 'lucide-react'
+import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle, CheckCircle, RefreshCw, Sparkles, MinusCircle, Pencil, Bell, ThumbsUp, Workflow } from 'lucide-react'
 
-type TabKey = 'status' | 'slides' | 'transcripts' | 'notes' | 'requests'
+type TabKey = 'status' | 'slides' | 'transcripts' | 'pipeline' | 'notes' | 'requests'
 
 export function AdminPage() {
   const [tab, setTab] = useState<TabKey>('status')
@@ -72,6 +73,7 @@ export function AdminPage() {
           <TabsTrigger value="status"><BookOpen className="h-4 w-4 mr-1.5" />Status</TabsTrigger>
           <TabsTrigger value="slides"><FileText className="h-4 w-4 mr-1.5" />Slides</TabsTrigger>
           <TabsTrigger value="transcripts"><Mic className="h-4 w-4 mr-1.5" />Lecture transcripts</TabsTrigger>
+          <TabsTrigger value="pipeline"><Workflow className="h-4 w-4 mr-1.5" />Pipeline</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
           <TabsTrigger value="requests"><Bell className="h-4 w-4 mr-1.5" />Requests</TabsTrigger>
         </TabsList>
@@ -86,6 +88,10 @@ export function AdminPage() {
 
         <TabsContent value="transcripts">
           <TranscriptsTab modules={modules ?? []} moduleSlug={moduleSlug} setModuleSlug={setModuleSlug} onChange={reload} />
+        </TabsContent>
+
+        <TabsContent value="pipeline">
+          <PipelineTab modules={modules ?? []} onChange={reload} />
         </TabsContent>
 
         <TabsContent value="notes">
@@ -228,7 +234,7 @@ function NotesTab({
 
 function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onChange: () => void }) {
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ name: '', slug: '', date: '', weight: 0.25, semester: 2 })
+  const [form, setForm] = useState({ name: '', slug: '', short_name: '', date: '', weight: 0.25, semester: 2 })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -238,7 +244,7 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
   const [lastResult, setLastResult] = useState<Record<string, string | null>>({})
 
   // Per-module edit state. `null` = not editing; an object = inline form open.
-  type EditDraft = { name: string; slug: string; date: string; weight: number; semester: number }
+  type EditDraft = { name: string; slug: string; short_name: string; date: string; weight: number; semester: number }
   const [editing, setEditing] = useState<Record<string, EditDraft | null>>({})
   const [editBusy, setEditBusy] = useState<Record<string, boolean>>({})
   const [editErr, setEditErr] = useState<Record<string, string | null>>({})
@@ -250,6 +256,7 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
       [m.id]: {
         name: m.name,
         slug: m.slug,
+        short_name: m.short_name ?? '',
         // date input wants YYYY-MM-DD
         date: new Date(m.date).toISOString().slice(0, 10),
         weight: m.weight,
@@ -267,6 +274,7 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
       await adminUpdateModule(id, {
         name: draft.name,
         slug: draft.slug,
+        short_name: draft.short_name,
         date: new Date(draft.date).toISOString(),
         weight: draft.weight,
         semester: draft.semester,
@@ -341,12 +349,13 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
       await adminCreateModule({
         name: form.name,
         slug: form.slug,
+        short_name: form.short_name,
         date: new Date(form.date).toISOString(),
         weight: form.weight,
         semester: form.semester,
       })
       setCreating(false)
-      setForm({ name: '', slug: '', date: '', weight: 0.25, semester: 2 })
+      setForm({ name: '', slug: '', short_name: '', date: '', weight: 0.25, semester: 2 })
       onChange()
     } catch (e) {
       setErr((e as Error).message)
@@ -432,6 +441,15 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
                             onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, slug: e.target.value } }))}
                           />
                         </Field>
+                        <Field label="Short name">
+                          <input
+                            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                            value={draft.short_name}
+                            maxLength={12}
+                            placeholder="e.g. NLP, AdvNet"
+                            onChange={(e) => setEditing((s) => ({ ...s, [m.id]: { ...draft, short_name: e.target.value } }))}
+                          />
+                        </Field>
                         <Field label="Exam date">
                           <input
                             type="date"
@@ -464,7 +482,7 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
                       </div>
                       {eErr && <div className="text-xs text-destructive">{eErr}</div>}
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => saveEdit(m.id)} disabled={eBusy || !draft.name || !draft.slug || !draft.date}>
+                        <Button size="sm" onClick={() => saveEdit(m.id)} disabled={eBusy || !draft.name || !draft.slug || !draft.short_name || !draft.date}>
                           {eBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => cancelEdit(m.id)} disabled={eBusy}>
@@ -616,6 +634,9 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
               <Field label="Slug">
                 <input className="w-full border rounded-md px-3 py-2 text-sm bg-background" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="evocomp" />
               </Field>
+              <Field label="Short name (badge)">
+                <input className="w-full border rounded-md px-3 py-2 text-sm bg-background" value={form.short_name} onChange={(e) => setForm({ ...form, short_name: e.target.value })} maxLength={12} placeholder="EC" />
+              </Field>
               <Field label="Exam date">
                 <input className="w-full border rounded-md px-3 py-2 text-sm bg-background" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               </Field>
@@ -629,7 +650,7 @@ function StatusTab({ modules, onChange }: { modules: AdminModule[] | null; onCha
             {err && <div className="text-sm text-destructive">{err}</div>}
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" size="sm" onClick={() => setCreating(false)}>Cancel</Button>
-              <Button size="sm" onClick={submit} disabled={busy || !form.name || !form.slug || !form.date}>
+              <Button size="sm" onClick={submit} disabled={busy || !form.name || !form.slug || !form.short_name || !form.date}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </Button>
             </div>

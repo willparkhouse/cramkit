@@ -2,6 +2,9 @@ export interface Exam {
   id: string
   name: string
   slug: string
+  /** Compact label (1-12 chars) used in badges and dashboard cards. Required
+   *  for new modules. May be null on legacy rows that haven't been backfilled. */
+  short_name: string | null
   date: string // ISO timestamp
   weight: number
   semester: number

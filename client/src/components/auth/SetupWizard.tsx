@@ -9,7 +9,7 @@ import { fetchMyProfile, updateMyProfile } from '@/services/leaderboard'
 import { useAppStore } from '@/store/useAppStore'
 import { refreshEnrollments } from '@/store/hydrate'
 import * as api from '@/lib/api'
-import { MODULE_COLOURS, MODULE_SHORT_NAMES } from '@/lib/constants'
+import { MODULE_COLOURS, getModuleShortName } from '@/lib/constants'
 import { formatDate, daysUntil } from '@/lib/utils'
 import {
   ExternalLink,
@@ -150,7 +150,7 @@ export function SetupWizard() {
                 exams.map((exam) => {
                   const enrolled = enrolledModuleIds.includes(exam.id)
                   const colour = MODULE_COLOURS[exam.name] || '#888'
-                  const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+                  const shortName = getModuleShortName(exam)
                   const days = Math.ceil(daysUntil(exam.date))
                   return (
                     <button

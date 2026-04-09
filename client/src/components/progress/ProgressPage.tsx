@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { getEffectiveScore } from '@/store/selectors'
-import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
+import { MODULE_COLOURS, getModuleShortName } from '@/lib/constants'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -68,7 +68,10 @@ export function ProgressPage() {
   // Group by module → week. The previous flat "weeks" list collapsed week 1
   // of every module into a single row, which made cross-module browsing
   // impossible to parse.
-  interface WeekGroup { week: number; lecture: string; concepts: ConceptWithStats[] }
+  // `lecture` may be null when concepts come from the whole-week extraction
+  // pipeline (which doesn't tag a per-lecture topic). UI then just shows
+  // "Week N" without a trailing colon + label.
+  interface WeekGroup { week: number; lecture: string | null; concepts: ConceptWithStats[] }
   interface ModuleGroup {
     moduleId: string
     moduleName: string
@@ -96,8 +99,8 @@ export function ProgressPage() {
       }
 
       const week = cs.concept.week || 0
-      const lecture = cs.concept.lecture || 'Uncategorised'
-      const key = `${week}-${lecture}`
+      const lecture = cs.concept.lecture ?? null
+      const key = `${week}-${lecture ?? '_'}`
       let group = moduleMap.get(key)
       if (!group) {
         group = { week, lecture, concepts: [] }
@@ -177,7 +180,7 @@ export function ProgressPage() {
           All modules
         </Badge>
         {exams.map((exam) => {
-          const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+          const shortName = getModuleShortName(exam)
           const colour = MODULE_COLOURS[exam.name] || '#888'
           const active = moduleFilter === exam.id
           return (
@@ -271,7 +274,11 @@ export function ProgressPage() {
                             : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium leading-snug">
-                              {group.week > 0 ? `Week ${group.week}: ` : ''}{group.lecture}
+                              {group.week > 0
+                                ? group.lecture
+                                  ? `Week ${group.week}: ${group.lecture}`
+                                  : `Week ${group.week}`
+                                : group.lecture ?? 'Uncategorised'}
                             </div>
                             <div className="text-[11px] text-muted-foreground">
                               {group.concepts.length} concepts · {testedCount} tested · {Math.round(avgScore * 100)}% avg

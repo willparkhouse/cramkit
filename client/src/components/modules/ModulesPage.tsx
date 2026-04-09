@@ -4,7 +4,7 @@ import { useAppStore } from '@/store/useAppStore'
 import { useAuth } from '@/lib/auth'
 import { refreshEnrollments } from '@/store/hydrate'
 import * as api from '@/lib/api'
-import { MODULE_COLOURS, MODULE_SHORT_NAMES } from '@/lib/constants'
+import { MODULE_COLOURS, getModuleShortName } from '@/lib/constants'
 import { formatDate, daysUntil } from '@/lib/utils'
 import { Plus, ThumbsUp, Loader2, GraduationCap, X, Bell, CheckCircle, Clock } from 'lucide-react'
 import type { ModuleRequest } from '@/types'
@@ -299,7 +299,7 @@ function UpcomingModuleRow({
   onAction: () => void
 }) {
   const colour = MODULE_COLOURS[exam.name] || '#888'
-  const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+  const shortName = getModuleShortName(exam)
   return (
     <div className="flex items-center gap-3 rounded-md px-2.5 py-2 border border-dashed border-border/60 bg-muted/20">
       <div className="w-2.5 h-2.5 rounded-sm shrink-0 opacity-60" style={{ backgroundColor: colour }} />
@@ -340,7 +340,7 @@ function ModuleRow({
   onAction: () => void
 }) {
   const colour = MODULE_COLOURS[exam.name] || '#888'
-  const shortName = MODULE_SHORT_NAMES[exam.name] || exam.name
+  const shortName = getModuleShortName(exam)
   const days = Math.ceil(daysUntil(exam.date))
 
   return (

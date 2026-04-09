@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAppStore } from '@/store/useAppStore'
 import { useModulePriorities } from '@/store/selectors'
-import { MODULE_SHORT_NAMES, MODULE_COLOURS } from '@/lib/constants'
+import { MODULE_COLOURS, getModuleShortName } from '@/lib/constants'
 
 export function PriorityAllocation() {
   const allExams = useAppStore((s) => s.exams)
@@ -49,8 +49,7 @@ export function PriorityAllocation() {
                   (priorities.get(exam.id) || 0) * 100
                 )
                 const colour = MODULE_COLOURS[exam.name] || '#888'
-                const shortName =
-                  MODULE_SHORT_NAMES[exam.name] || exam.name
+                const shortName = getModuleShortName(exam)
                 return (
                   <div key={exam.id} className="flex items-center gap-2 text-xs">
                     <div

@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ChevronDown, ChevronUp, Trash2, Edit2, Check } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_SHORT_NAMES } from '@/lib/constants'
+import { getModuleShortName } from '@/lib/constants'
 
 import type { ReviewConcept } from '@/services/ingestion'
 
@@ -44,7 +44,7 @@ export function ConceptReview({
 
   const examName = (id: string) => {
     const exam = exams.find((e) => e.id === id)
-    return exam ? MODULE_SHORT_NAMES[exam.name] || exam.name : id
+    return exam ? getModuleShortName(exam) : id
   }
 
   return (

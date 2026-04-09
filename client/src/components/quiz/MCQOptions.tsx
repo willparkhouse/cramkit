@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Lightbulb } from 'lucide-react'
 
 interface MCQOptionsProps {
   options: string[]
   correctAnswer: string
   onSubmit: (answer: string) => void
   onIdk: () => void
+  /** Open the AI "more context" panel above the options */
+  onRequestHint?: () => void
+  /** Greys out the hint button while a hint is loading or streaming */
+  hintBusy?: boolean
+  /** Hides the hint button entirely once a hint is on screen */
+  hintOpen?: boolean
 }
 
 /**
@@ -16,7 +23,15 @@ interface MCQOptionsProps {
  * "answering" and "reviewing" feels like the same UI lighting up rather
  * than a hard re-render into a different layout.
  */
-export function MCQOptions({ options, correctAnswer, onSubmit, onIdk }: MCQOptionsProps) {
+export function MCQOptions({
+  options,
+  correctAnswer,
+  onSubmit,
+  onIdk,
+  onRequestHint,
+  hintBusy,
+  hintOpen,
+}: MCQOptionsProps) {
   const [selected, setSelected] = useState<string>('')
   const [submitted, setSubmitted] = useState<string | null>(null)
 
@@ -83,6 +98,18 @@ export function MCQOptions({ options, correctAnswer, onSubmit, onIdk }: MCQOptio
         >
           I don't know
         </Button>
+        {onRequestHint && !hintOpen && (
+          <Button
+            variant="ghost"
+            onClick={onRequestHint}
+            disabled={isLocked || hintBusy}
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            title="Get an AI hint about what this question is asking, without giving away the answer"
+          >
+            <Lightbulb className="h-4 w-4 mr-1.5" />
+            More context
+          </Button>
+        )}
         <Button
           onClick={handleSubmit}
           disabled={!selected || isLocked}

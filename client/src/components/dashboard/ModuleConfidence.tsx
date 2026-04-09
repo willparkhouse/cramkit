@@ -2,14 +2,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { useAppStore } from '@/store/useAppStore'
 import { useModuleConfidence } from '@/store/selectors'
-import { MODULE_SHORT_NAMES } from '@/lib/constants'
+import { getModuleShortName } from '@/lib/constants'
+import type { Exam } from '@/types'
 
-function ModuleBar({ examId, examName }: { examId: string; examName: string }) {
-  const confidence = useModuleConfidence(examId)
+function ModuleBar({ exam }: { exam: Exam }) {
+  const confidence = useModuleConfidence(exam.id)
   const concepts = useAppStore((s) => s.concepts)
-  const count = concepts.filter((c) => c.module_ids.includes(examId)).length
+  const count = concepts.filter((c) => c.module_ids.includes(exam.id)).length
   const percent = Math.round(confidence * 100)
-  const shortName = MODULE_SHORT_NAMES[examName] || examName
+  const shortName = getModuleShortName(exam)
 
   return (
     <div className="space-y-1">
@@ -42,9 +43,7 @@ export function ModuleConfidence() {
             No exams loaded yet. Check your Supabase connection.
           </p>
         ) : (
-          exams.map((exam) => (
-            <ModuleBar key={exam.id} examId={exam.id} examName={exam.name} />
-          ))
+          exams.map((exam) => <ModuleBar key={exam.id} exam={exam} />)
         )}
       </CardContent>
     </Card>

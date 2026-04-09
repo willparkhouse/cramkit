@@ -9,6 +9,8 @@ import { fileURLToPath } from 'url'
 import ingestionRoutes from './routes/ingestion.js'
 import sourceRoutes from './routes/sources.js'
 import adminRoutes from './routes/admin.js'
+import adminPipelineRoutes from './routes/adminPipeline.js'
+import hintRoutes from './routes/hint.js'
 import billingRoutes from './routes/billing.js'
 import stripeWebhookRoutes from './routes/stripeWebhook.js'
 import aiProxyRoutes from './routes/aiProxy.js'
@@ -37,6 +39,8 @@ app.get('/api/health', (c) => {
 app.route('/api', ingestionRoutes)
 app.route('/api', sourceRoutes)
 app.route('/api', adminRoutes)
+app.route('/api', adminPipelineRoutes)
+app.route('/api', hintRoutes)
 app.route('/api', billingRoutes)
 app.route('/api', stripeWebhookRoutes)
 app.route('/api', aiProxyRoutes)

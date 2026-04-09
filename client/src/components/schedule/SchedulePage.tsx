@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store/useAppStore'
-import { MODULE_COLOURS, MODULE_SHORT_NAMES } from '@/lib/constants'
+import { MODULE_COLOURS, getModuleShortName } from '@/lib/constants'
 import * as api from '@/lib/api'
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import type { RevisionSlot } from '@/types'
@@ -73,7 +73,7 @@ export function SchedulePage() {
     for (const exam of exams) {
       stats.set(exam.id, {
         name: exam.name,
-        shortName: MODULE_SHORT_NAMES[exam.name] || exam.name,
+        shortName: getModuleShortName(exam),
         colour: MODULE_COLOURS[exam.name] || '#888',
         totalHours: 0, totalSessions: 0,
         completedHours: 0, completedSessions: 0,
@@ -110,10 +110,10 @@ export function SchedulePage() {
     return exam ? MODULE_COLOURS[exam.name] || '#888' : '#888'
   }
 
-  const getModuleShortName = (id: string | null) => {
+  const lookupModuleShortName = (id: string | null) => {
     if (!id) return ''
     const exam = exams.find((e) => e.id === id)
-    return exam ? MODULE_SHORT_NAMES[exam.name] || exam.name : ''
+    return exam ? getModuleShortName(exam) : ''
   }
 
   const updateSlotStatus = async (slotId: string, status: 'completed' | 'skipped' | 'pending') => {
@@ -261,7 +261,7 @@ export function SchedulePage() {
     const top = ((startHour - 8) / 15) * 100
     const height = ((endHour - startHour) / 15) * 100
     const colour = getModuleColour(slot.allocated_module_id)
-    const label = getModuleShortName(slot.allocated_module_id)
+    const label = lookupModuleShortName(slot.allocated_module_id)
     const duration = Math.round((endHour - startHour) * 10) / 10
     const status = slot.status || 'pending'
 
@@ -354,7 +354,7 @@ export function SchedulePage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {pastUnmarked.slice(0, 5).map((slot) => {
-              const moduleName = getModuleShortName(slot.allocated_module_id)
+              const moduleName = lookupModuleShortName(slot.allocated_module_id)
               const colour = getModuleColour(slot.allocated_module_id)
               const hours = Math.round(slotHours(slot) * 10) / 10
               const date = new Date(slot.start_time)

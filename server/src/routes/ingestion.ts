@@ -281,7 +281,9 @@ interface GeneratedQuestion {
 }
 
 // Generate questions for a single concept, grounded in retrieved source chunks.
-async function generateForConcept(
+// Exported so the admin pipeline (server/src/lib/questionGeneration.ts) can
+// call it in a batch loop without going through the HTTP route.
+export async function generateForConcept(
   concept: { name: string; description: string; key_facts: string[]; difficulty: number },
   moduleSlug: string | undefined,
   userId: string | null,
