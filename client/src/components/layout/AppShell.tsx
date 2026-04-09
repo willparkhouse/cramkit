@@ -28,7 +28,7 @@ import { RightRailProvider, RightRailSlot, useRightRailActive } from './RightRai
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
   { to: '/quiz', icon: Brain, label: 'Quiz', adminOnly: false },
-  { to: '/search', icon: Search, label: 'Search materials', adminOnly: false },
+  { to: '/study', icon: Search, label: 'Study', adminOnly: false },
   { to: '/progress', icon: BarChart3, label: 'Progress', adminOnly: false },
   { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', adminOnly: false },
   { to: '/modules', icon: GraduationCap, label: 'Modules', adminOnly: false },
@@ -116,7 +116,7 @@ function AppShellInner() {
           rightRailActive && 'lg:pr-72'
         )}
       >
-        <div className="mx-auto max-w-5xl p-4 md:p-8">
+        <div className="mx-auto max-w-6xl p-4 md:p-8">
           <Outlet />
         </div>
       </main>

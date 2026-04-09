@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useQuizSession } from '@/hooks/useQuizSession'
 import { useAppStore } from '@/store/useAppStore'
 import { getModuleShortName } from '@/lib/constants'
-import { streamChat, streamSourceChat, searchSources, MissingApiKeyError, type SourceChunk } from '@/lib/api'
+import { streamChat, streamSourceChat, searchSources, fetchQuestionSourceChunks, MissingApiKeyError, type SourceChunk, type QuestionSourceChunk } from '@/lib/api'
 import { startConversation, logChatMessage, bumpStudyActivity } from '@/services/activity'
 import { renderWithCitations } from '@/lib/citations'
 import { useSetup } from '@/lib/setupContext'
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Brain, GraduationCap, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, FileText, ExternalLink, SlidersHorizontal, ChevronDown, Sparkles } from 'lucide-react'
+import { Brain, GraduationCap, HelpCircle, Loader2, CheckCircle, XCircle, MinusCircle, ArrowRight, Send, Video, FileText, ExternalLink, SlidersHorizontal, ChevronDown, Sparkles, BookOpen } from 'lucide-react'
 import { RightRail } from '@/components/layout/RightRail'
 import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
@@ -463,6 +463,113 @@ function resolveRagSlug(concept: Concept, exams: { id: string; slug?: string }[]
 }
 
 // Shows the question read-only with your answer + correct answer highlighted, feedback, and a "Help me understand" panel
+/**
+ * Post-answer disclosure that shows the lecture/slide passage(s) the question
+ * was generated from. Pure DB lookup — no LLM, no embedding — using the
+ * `source_chunk_ids` array stored on the question at generation time. Falls
+ * back to the concept's `source_excerpt` for legacy questions that predate
+ * per-question grounding.
+ */
+function QuestionSourceMaterial({ question, concept }: { question: Question; concept: Concept }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [chunks, setChunks] = useState<QuestionSourceChunk[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const ids = question.source_chunk_ids ?? []
+  const hasChunks = ids.length > 0
+  const fallbackExcerpt = concept.source_excerpt?.trim() || null
+
+  // Nothing to show at all — don't render the disclosure.
+  if (!hasChunks && !fallbackExcerpt) return null
+
+  const onToggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (next && hasChunks && chunks === null && !loading) {
+      setLoading(true)
+      setError(null)
+      try {
+        const rows = await fetchQuestionSourceChunks(ids)
+        setChunks(rows)
+      } catch (e) {
+        setError((e as Error).message)
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  const evidence = question.evidence_quote?.trim() || null
+
+  return (
+    <div className="pt-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+        <BookOpen className="h-3 w-3" />
+        Source from lectures
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {evidence && (
+            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs italic text-foreground/80 border-l-2 border-l-muted-foreground/40">
+              “{evidence}”
+            </div>
+          )}
+          {loading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading source…
+            </div>
+          )}
+          {error && (
+            <div className="text-xs text-destructive">Couldn't load source: {error}</div>
+          )}
+          {!loading && !error && hasChunks && chunks && chunks.length === 0 && (
+            <div className="text-xs text-muted-foreground">
+              The grounding chunks are no longer available.
+            </div>
+          )}
+          {!loading && chunks && chunks.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {chunks.map((c) => {
+                const SourceIcon = c.source_type === 'slides' ? FileText : Video
+                const label = c.position_label
+                  ? `${c.source_code} ${c.source_type === 'lecture' ? '@ ' : ''}${c.position_label}`
+                  : c.source_code
+                const Tag = c.deep_link ? 'a' : 'div'
+                const tagProps = c.deep_link
+                  ? { href: c.deep_link, target: '_blank', rel: 'noreferrer' }
+                  : {}
+                return (
+                  <Tag
+                    key={c.chunk_id}
+                    {...tagProps}
+                    className={`inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] ${c.deep_link ? 'hover:bg-muted text-foreground/90' : 'text-muted-foreground'}`}
+                  >
+                    <SourceIcon className="h-3 w-3" />
+                    <span>{label}</span>
+                    {c.deep_link && <ExternalLink className="h-3 w-3 opacity-60" />}
+                  </Tag>
+                )
+              })}
+            </div>
+          )}
+          {!hasChunks && fallbackExcerpt && (
+            <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground/90 whitespace-pre-wrap leading-relaxed">
+              {fallbackExcerpt}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ReviewAndFeedback({
   question,
   concept,
@@ -750,6 +857,8 @@ function ReviewAndFeedback({
               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
             </Button>
           </div>
+
+          <QuestionSourceMaterial question={question} concept={concept} />
         </CardContent>
       </Card>
       </div>

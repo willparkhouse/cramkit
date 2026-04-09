@@ -28,12 +28,10 @@ import { recordUsage } from '../lib/usage.js'
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
 
-// Hints are a Pro-only perk because each click is a Sonnet call paid from
-// the platform's Anthropic credit. Free users either upgrade or use BYOK
-// (BYOK users could call Claude themselves from the browser, but the hint
-// feature deliberately runs server-side so the prompt + grounding logic
-// stays in one place — for free users without Pro, the button is gated).
-// Returns 402 on miss, which the client renders as an upgrade prompt.
+// /question-hint is the Pro proxy path: server makes the Sonnet call on
+// the platform's credit. requirePro gates this route — free + BYOK users
+// hit /question-hint/context instead, build the prompt in the browser,
+// and call Anthropic with their own key.
 //
 // 30 hints per minute per user — generous, but blocks scripted abuse.
 app.use(
@@ -41,6 +39,15 @@ app.use(
   requireAuth,
   requirePro,
   rateLimit({ key: 'question-hint', windowMs: 60_000, max: 30 })
+)
+
+// /question-hint/context is the auth-only retrieval endpoint that BYOK
+// users hit to get the question + concept + grounded chunks back, then
+// call Anthropic from the browser themselves. No Anthropic call here.
+app.use(
+  '/question-hint/context',
+  requireAuth,
+  rateLimit({ key: 'question-hint-context', windowMs: 60_000, max: 60 })
 )
 
 function getServiceClient() {
@@ -132,35 +139,37 @@ interface ConceptRow {
   module_ids: string[]
 }
 
-app.post('/question-hint', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
-  const questionId = typeof body.question_id === 'string' ? body.question_id : null
-  // 'terse' (default) — one-sentence orientation. 'detailed' — continuation.
-  const level: 'terse' | 'detailed' = body.level === 'detailed' ? 'detailed' : 'terse'
-  // For detailed mode, the previous (terse) hint text the student already
-  // sees on screen. The continuation must NOT repeat it.
-  const previous = typeof body.previous === 'string' ? body.previous : ''
-  if (!questionId) return c.json({ error: 'question_id required' }, 400)
+// ----------------------------------------------------------------------------
+// Shared lookup: load the question, concept, retrieved chunks, and resolve
+// the module slug. Used by both the Pro proxy route and the BYOK context
+// endpoint so the prompt construction stays in one place.
+// ----------------------------------------------------------------------------
+interface HintContext {
+  question: { id: string; text: string; type: string; options: string[] | null; correct_answer: string }
+  concept: { id: string; name: string; description: string; key_facts: string[] }
+  chunks: Array<{ source_code: string; source_type: string; chunk_text: string }>
+}
 
+async function loadHintContext(
+  questionId: string,
+  userId: string | null,
+): Promise<HintContext | { error: string; status: number }> {
   const sb = getServiceClient()
 
-  // Load the question and the concept it's tied to
   const { data: question, error: qErr } = await sb
     .from('questions')
     .select('id, question, type, options, correct_answer, concept_id')
     .eq('id', questionId)
     .single<QuestionRow>()
-  if (qErr || !question) return c.json({ error: 'question not found' }, 404)
+  if (qErr || !question) return { error: 'question not found', status: 404 }
 
   const { data: concept, error: cErr } = await sb
     .from('concepts')
     .select('id, name, description, key_facts, module_ids')
     .eq('id', question.concept_id)
     .single<ConceptRow>()
-  if (cErr || !concept) return c.json({ error: 'concept not found' }, 404)
+  if (cErr || !concept) return { error: 'concept not found', status: 404 }
 
-  // Resolve the module slug from the first module_id (concepts can belong to
-  // multiple modules but the first one is the canonical owner).
   let moduleSlug: string | undefined
   if (concept.module_ids && concept.module_ids[0]) {
     const { data: exam } = await sb
@@ -171,69 +180,81 @@ app.post('/question-hint', async (c) => {
     moduleSlug = (exam?.slug as string | undefined) ?? undefined
   }
 
-  const user = c.get('user')
-
-  // Retrieve top chunks for grounding. Same retrieval the wrong-answer panel
-  // uses, scoped to this concept's module.
   const query = `${concept.name}. ${concept.description}. ${(concept.key_facts ?? []).slice(0, 3).join('. ')}`
-  let chunkBlock = ''
+  const chunks: HintContext['chunks'] = []
   try {
-    const chunks = await retrieveChunks({
+    const retrieved = await retrieveChunks({
       query,
       module: moduleSlug,
       matchCount: 5,
-      userId: user?.id ?? null,
+      userId,
       endpoint: 'question-hint',
     })
-    chunkBlock = chunks
-      .map((ch, i) => `[CHUNK ${i + 1}] (${ch.source_code}, ${ch.source_type})\n${ch.chunk_text}`)
-      .join('\n\n---\n\n')
+    for (const ch of retrieved) {
+      chunks.push({
+        source_code: ch.source_code,
+        source_type: ch.source_type,
+        chunk_text: ch.chunk_text,
+      })
+    }
   } catch (e) {
     console.warn(`question-hint retrieval failed for ${questionId}:`, (e as Error).message)
   }
 
-  // The model needs to see the options AND the correct answer so it knows
-  // what NOT to leak. The system prompt explicitly frames this as a no-go list.
-  // For free-form questions there are no options — we just include the
-  // correct answer so the model knows what topic to dance around.
-  const optionsBlock =
-    question.type === 'mcq' && Array.isArray(question.options) && question.options.length > 0
-      ? `OPTIONS (the student can see these — the model uses them as a NO-GO list):
-${question.options
-  .map((o) => {
-    const isCorrect =
-      o.trim().toLowerCase() === question.correct_answer.trim().toLowerCase()
-    return `  ${isCorrect ? '✓ CORRECT' : '✗ wrong  '}  ${o}`
-  })
-  .join('\n')}`
-      : `CORRECT ANSWER (the student must NOT be walked to this — use as a NO-GO list):
-${question.correct_answer}`
+  return {
+    question: {
+      id: question.id,
+      text: question.question,
+      type: question.type,
+      options: question.options,
+      correct_answer: question.correct_answer,
+    },
+    concept: {
+      id: concept.id,
+      name: concept.name,
+      description: concept.description,
+      key_facts: concept.key_facts ?? [],
+    },
+    chunks,
+  }
+}
 
-  const previousBlock =
-    level === 'detailed' && previous.trim()
-      ? `\n\nPRIOR HINT (already on screen — do NOT repeat, write a continuation that flows from this):
-${previous.trim()}`
-      : ''
+// ----------------------------------------------------------------------------
+// /question-hint/context — auth-only retrieval used by BYOK clients. Returns
+// everything the browser needs to build the prompt and call Anthropic
+// directly with the user's own key. No Anthropic call here.
+// ----------------------------------------------------------------------------
+app.post('/question-hint/context', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const questionId = typeof body.question_id === 'string' ? body.question_id : null
+  if (!questionId) return c.json({ error: 'question_id required' }, 400)
+  const user = c.get('user')
+  const result = await loadHintContext(questionId, user?.id ?? null)
+  if ('error' in result) return c.json({ error: result.error }, result.status as 404)
+  return c.json(result)
+})
 
-  const userContent = `QUESTION
-${question.question}
+// ----------------------------------------------------------------------------
+// /question-hint — Pro proxy. Server makes the Sonnet call on platform credit.
+// ----------------------------------------------------------------------------
+app.post('/question-hint', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const questionId = typeof body.question_id === 'string' ? body.question_id : null
+  // 'terse' (default) — one-sentence orientation. 'detailed' — continuation.
+  const level: 'terse' | 'detailed' = body.level === 'detailed' ? 'detailed' : 'terse'
+  // For detailed mode, the previous (terse) hint text the student already
+  // sees on screen. The continuation must NOT repeat it.
+  const previous = typeof body.previous === 'string' ? body.previous : ''
+  if (!questionId) return c.json({ error: 'question_id required' }, 400)
 
-${optionsBlock}
+  const user = c.get('user')
+  const ctx = await loadHintContext(questionId, user?.id ?? null)
+  if ('error' in ctx) return c.json({ error: ctx.error }, ctx.status as 404)
 
-CONCEPT
-Name: ${concept.name}
-Description: ${concept.description}
-Key facts: ${(concept.key_facts ?? []).join('; ')}
-
-SOURCE CHUNKS
-
-${chunkBlock || '(no chunks retrieved)'}${previousBlock}`
-
+  const userContent = buildHintUserContent(ctx, level, previous)
   const systemPrompt = level === 'detailed' ? HINT_DETAILED_PROMPT : HINT_TERSE_PROMPT
   const maxTokens = level === 'detailed' ? 500 : 200
 
-  // Stream the response back as SSE so the panel can render tokens as they
-  // arrive — same pattern as the chat features.
   return streamSSE(c, async (stream) => {
     try {
       const response = await anthropic.messages.stream({
@@ -257,7 +278,7 @@ ${chunkBlock || '(no chunks retrieved)'}${previousBlock}`
         endpoint: 'question-hint',
         inputTokens: final.usage?.input_tokens ?? 0,
         outputTokens: final.usage?.output_tokens ?? 0,
-        meta: { question_id: questionId, concept_id: concept.id, level },
+        meta: { question_id: questionId, concept_id: ctx.concept.id, level },
       })
 
       await stream.writeSSE({ event: 'done', data: '' })
@@ -267,5 +288,55 @@ ${chunkBlock || '(no chunks retrieved)'}${previousBlock}`
     }
   })
 })
+
+// ----------------------------------------------------------------------------
+// Builds the user-facing prompt content from a hint context. The BYOK client
+// path duplicates this logic in the browser (so the prompt is built locally
+// and the user's key isn't shipped to our server). Update both sites if you
+// change the format.
+// ----------------------------------------------------------------------------
+function buildHintUserContent(
+  ctx: HintContext,
+  _level: 'terse' | 'detailed',
+  previous: string,
+): string {
+  const optionsBlock =
+    ctx.question.type === 'mcq' && Array.isArray(ctx.question.options) && ctx.question.options.length > 0
+      ? `OPTIONS (the student can see these — the model uses them as a NO-GO list):
+${ctx.question.options
+  .map((o) => {
+    const isCorrect =
+      o.trim().toLowerCase() === ctx.question.correct_answer.trim().toLowerCase()
+    return `  ${isCorrect ? '✓ CORRECT' : '✗ wrong  '}  ${o}`
+  })
+  .join('\n')}`
+      : `CORRECT ANSWER (the student must NOT be walked to this — use as a NO-GO list):
+${ctx.question.correct_answer}`
+
+  const chunkBlock = ctx.chunks.length
+    ? ctx.chunks
+        .map((ch, i) => `[CHUNK ${i + 1}] (${ch.source_code}, ${ch.source_type})\n${ch.chunk_text}`)
+        .join('\n\n---\n\n')
+    : '(no chunks retrieved)'
+
+  const previousBlock = previous.trim()
+    ? `\n\nPRIOR HINT (already on screen — do NOT repeat, write a continuation that flows from this):
+${previous.trim()}`
+    : ''
+
+  return `QUESTION
+${ctx.question.text}
+
+${optionsBlock}
+
+CONCEPT
+Name: ${ctx.concept.name}
+Description: ${ctx.concept.description}
+Key facts: ${ctx.concept.key_facts.join('; ')}
+
+SOURCE CHUNKS
+
+${chunkBlock}${previousBlock}`
+}
 
 export default app

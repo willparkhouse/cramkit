@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -11,7 +12,8 @@ import { MCQOptions } from './MCQOptions'
 import { FreeFormAnswer } from './FreeFormAnswer'
 import { useAppStore } from '@/store/useAppStore'
 import { getModuleShortName } from '@/lib/constants'
-import { supabase } from '@/lib/supabase'
+import { streamHint } from '@/lib/api'
+import { useSetup } from '@/lib/setupContext'
 import type { Question, Concept } from '@/types'
 
 interface QuestionCardProps {
@@ -35,6 +37,8 @@ type HintStreamState =
   | { phase: 'streaming'; level: HintLevel; text: string }
   | { phase: 'done'; level: HintLevel; text: string }
   | { phase: 'error'; level: HintLevel; message: string }
+  // Free user with no BYOK key — shown as an upgrade/setup CTA in the panel.
+  | { phase: 'missing_key'; level: HintLevel }
 
 export function QuestionCard({
   question,
@@ -71,13 +75,15 @@ export function QuestionCard({
     }
   }, [question.id])
 
+  const { openSetup } = useSetup()
+
   const requestHint = async (level: HintLevel = 'terse') => {
     if (hint.phase === 'loading' || hint.phase === 'streaming') return
 
     // For "detailed" requests, preserve the prior terse text and append the
-    // continuation to it. For "terse" requests, start from empty.
-    // The early-return above means hint.phase is one of 'closed' | 'done' | 'error'.
-    // 'streaming' would have bailed out — only 'done' carries usable prior text.
+    // continuation to it. For "terse" requests, start from empty. The
+    // early-return above means hint.phase is one of 'closed' | 'done' |
+    // 'error' | 'missing_key' — only 'done' carries usable prior text.
     const priorText = level === 'detailed' && hint.phase === 'done' ? hint.text : ''
     // The separator between the terse hint and its continuation. The detailed
     // prompt asks for a connecting word, so a single space joins them into
@@ -86,99 +92,38 @@ export function QuestionCard({
 
     setHint({ phase: 'loading', level, text: priorText })
     streamQuestionRef.current = question.id
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) throw new Error('Not authenticated')
 
-      const res = await fetch('/api/question-hint', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          question_id: question.id,
-          level,
-          previous: priorText,
-        }),
-      })
-      // Pro-gated server-side. Free users get 402 with a structured error.
-      // Render an upgrade message in the panel rather than a generic "failed".
-      if (res.status === 402) {
-        setHint({
-          phase: 'error',
-          level,
-          message: 'Hints are a Pro feature. Upgrade your plan in Settings to unlock them.',
-        })
-        return
-      }
-      if (!res.ok || !res.body) {
-        throw new Error(`Hint request failed: ${res.status}`)
-      }
-
-      // SSE stream parsing — events are separated by \n\n, each with optional
-      // event: and data: lines.
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      // streamingDelta is the text the server has sent us this turn. The
-      // visible text is priorText + separator + streamingDelta.
-      let streamingDelta = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const events = buffer.split('\n\n')
-        buffer = events.pop() ?? ''
-        for (const evt of events) {
+    let streamingDelta = ''
+    await streamHint(
+      { questionId: question.id, level, previous: priorText },
+      {
+        onDelta: (chunk) => {
           if (streamQuestionRef.current !== question.id) return
-          const lines = evt.split('\n')
-          let eventName = 'message'
-          const dataLines: string[] = []
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              eventName = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              // SSE framing: exactly one optional space after `data:` is part
-              // of the framing and gets stripped. Any further leading space is
-              // actual payload — DO NOT trim it, or words run together when
-              // Claude streams a token that begins with a space.
-              const raw = line.slice(5)
-              dataLines.push(raw.startsWith(' ') ? raw.slice(1) : raw)
-            }
-          }
-          const data = dataLines.join('\n')
-          if (eventName === 'delta') {
-            streamingDelta += data
-            setHint({
-              phase: 'streaming',
-              level,
-              text: priorText + separator + streamingDelta,
-            })
-          } else if (eventName === 'done') {
-            setHint({
-              phase: 'done',
-              level,
-              text: priorText + separator + streamingDelta,
-            })
-          } else if (eventName === 'error') {
-            setHint({ phase: 'error', level, message: data || 'Hint failed' })
-            return
-          }
-        }
-      }
-      // Stream ended cleanly without an explicit done event
-      if (streamQuestionRef.current === question.id && streamingDelta) {
-        setHint({
-          phase: 'done',
-          level,
-          text: priorText + separator + streamingDelta,
-        })
-      }
-    } catch (err) {
-      if (streamQuestionRef.current !== question.id) return
-      setHint({ phase: 'error', level, message: (err as Error).message })
-    }
+          streamingDelta += chunk
+          setHint({
+            phase: 'streaming',
+            level,
+            text: priorText + separator + streamingDelta,
+          })
+        },
+        onDone: () => {
+          if (streamQuestionRef.current !== question.id) return
+          setHint({
+            phase: 'done',
+            level,
+            text: priorText + separator + streamingDelta,
+          })
+        },
+        onError: (message) => {
+          if (streamQuestionRef.current !== question.id) return
+          setHint({ phase: 'error', level, message })
+        },
+        onMissingKey: () => {
+          if (streamQuestionRef.current !== question.id) return
+          setHint({ phase: 'missing_key', level })
+        },
+      },
+    )
   }
 
   const closeHint = () => {
@@ -200,7 +145,25 @@ export function QuestionCard({
         )}
         <div className="flex items-start gap-2 mb-2">
           <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            <Badge variant="secondary" className="text-[10px]">{concept.name}</Badge>
+            {/* Concept name links to the Study page for that specific concept,
+                so a stuck student can click "I need to learn this first" without
+                losing the quiz. Opens in a new tab so quiz progress isn't lost.
+                Falls back to a non-link Badge when we can't resolve the owning
+                module (concepts without module_ids — shouldn't happen but be safe). */}
+            {ownerExam ? (
+              <Link
+                to={`/study?module=${encodeURIComponent(ownerExam.id)}&concept=${encodeURIComponent(concept.id)}`}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open ${concept.name} in Study (new tab)`}
+              >
+                <Badge variant="secondary" className="text-[10px] cursor-pointer hover:bg-secondary/80 transition-colors">
+                  {concept.name}
+                </Badge>
+              </Link>
+            ) : (
+              <Badge variant="secondary" className="text-[10px]">{concept.name}</Badge>
+            )}
             <Badge variant="outline" className="text-[10px]">
               {question.type === 'mcq' ? 'MCQ' : 'Free form'}
             </Badge>
@@ -226,6 +189,7 @@ export function QuestionCard({
           state={hint}
           onClose={closeHint}
           onRequestMore={() => requestHint('detailed')}
+          onOpenSetup={() => openSetup('required')}
         />
 
         {question.type === 'mcq' && question.options ? (
@@ -263,10 +227,12 @@ function HintPanel({
   state,
   onClose,
   onRequestMore,
+  onOpenSetup,
 }: {
   state: HintStreamState
   onClose: () => void
   onRequestMore: () => void
+  onOpenSetup: () => void
 }) {
   if (state.phase === 'closed') return null
 
@@ -318,6 +284,23 @@ function HintPanel({
             className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
             Tell me more
+          </Button>
+        </div>
+      )}
+
+      {state.phase === 'missing_key' && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-foreground/80">
+            Hints need an Anthropic key. Add your own in Settings, or upgrade
+            to Pro to let cramkit handle the AI for you.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenSetup}
+            className="h-6 px-2 text-[11px]"
+          >
+            Open Settings
           </Button>
         </div>
       )}

@@ -2,6 +2,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from './supabase'
 import { getApiKey } from './apiKey'
 import { getCurrentTier } from './subscription'
+import {
+  HINT_TERSE_PROMPT,
+  HINT_DETAILED_PROMPT,
+  LESSON_SYSTEM_PROMPT,
+  buildHintUserContent,
+  buildLessonUserContent,
+  type HintContextPayload,
+} from './aiPrompts'
 import type {
   ExtractConceptsRequest,
   ExtractConceptsResponse,
@@ -394,6 +402,352 @@ export async function pipelineGenerateQuestions(input: {
 }
 
 // ============================================================================
+// Question hint — see server/src/routes/hint.ts for the route shape.
+//
+// Two paths, mirroring the lesson + chat features:
+//   - Pro    → POST /api/question-hint (server proxy, SSE).
+//   - BYOK   → POST /api/question-hint/context to fetch question + concept
+//              + chunks, then call Anthropic from the browser with the
+//              user's key.
+//
+// The hint server prompt is mirrored in client/src/lib/aiPrompts.ts so the
+// BYOK browser path generates an identical hint.
+// ============================================================================
+
+export interface HintStreamHandlers {
+  /** Called for every streamed delta. Caller appends to a running buffer. */
+  onDelta: (chunk: string) => void
+  onDone?: () => void
+  onError?: (message: string) => void
+  /** Free user with no BYOK key configured. Caller should open setup. */
+  onMissingKey?: () => void
+}
+
+export interface HintOptions {
+  questionId: string
+  level: 'terse' | 'detailed'
+  /** For 'detailed' level: the prior terse text the model should continue from. */
+  previous: string
+}
+
+export async function streamHint(
+  opts: HintOptions,
+  handlers: HintStreamHandlers,
+): Promise<void> {
+  if (getCurrentTier() === 'pro') {
+    return streamHintViaProxy(opts, handlers)
+  }
+  return streamHintViaBYOK(opts, handlers)
+}
+
+async function streamHintViaProxy(
+  opts: HintOptions,
+  handlers: HintStreamHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const res = await fetch('/api/question-hint', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      question_id: opts.questionId,
+      level: opts.level,
+      previous: opts.previous,
+    }),
+  })
+  if (!res.ok || !res.body) {
+    handlers.onError?.(`Hint request failed: ${res.status}`)
+    return
+  }
+  await consumeSSE(res.body, handlers)
+}
+
+async function streamHintViaBYOK(
+  opts: HintOptions,
+  handlers: HintStreamHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  // Fetch question + concept + grounded chunks (no Anthropic call)
+  const ctxRes = await fetch('/api/question-hint/context', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ question_id: opts.questionId }),
+  })
+  if (!ctxRes.ok) {
+    handlers.onError?.(`Hint context failed: ${ctxRes.status}`)
+    return
+  }
+  const ctx = (await ctxRes.json()) as HintContextPayload
+
+  let client: Anthropic
+  try {
+    client = getAnthropicClient()
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) {
+      handlers.onMissingKey?.()
+      return
+    }
+    throw err
+  }
+
+  const userContent = buildHintUserContent(ctx, opts.previous)
+  const systemPrompt = opts.level === 'detailed' ? HINT_DETAILED_PROMPT : HINT_TERSE_PROMPT
+  const maxTokens = opts.level === 'detailed' ? 500 : 200
+
+  try {
+    const stream = await client.messages.stream({
+      model: SONNET_MODEL,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+    })
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        handlers.onDelta(event.delta.text)
+      }
+    }
+    handlers.onDone?.()
+  } catch (err) {
+    handlers.onError?.((err as Error).message ?? 'Hint stream failed')
+  }
+}
+
+// Shared SSE consumer for the hint Pro proxy. The lesson Pro proxy reuses
+// the same wire format but with an extra 'cached' event, so it has its own
+// inline parser. Hint never sends 'cached' so this simpler version is fine.
+async function consumeSSE(
+  body: ReadableStream<Uint8Array>,
+  handlers: HintStreamHandlers,
+): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const evt of events) {
+      const lines = evt.split('\n')
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          // Strip exactly one optional space after `data:` per SSE framing
+          // — preserves payload tokens that begin with whitespace.
+          const raw = line.slice(5)
+          dataLines.push(raw.startsWith(' ') ? raw.slice(1) : raw)
+        }
+      }
+      const data = dataLines.join('\n')
+      if (eventName === 'delta') {
+        handlers.onDelta(data)
+      } else if (eventName === 'done') {
+        handlers.onDone?.()
+      } else if (eventName === 'error') {
+        handlers.onError?.(data || 'Stream failed')
+        return
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Lesson walkthrough — see server/src/routes/lesson.ts for the route shape.
+//
+// Two paths, mirroring the existing chat features:
+//   - Pro    → POST /api/lesson, server runs Sonnet on platform credit and
+//              writes the result to the shared cache.
+//   - BYOK   → GET  /api/lesson/context/:id (cache hit or grounded chunks),
+//              call Anthropic from the browser with the user's key, POST
+//              the result back to /api/lesson/cache so the next reader
+//              benefits from the work.
+//
+// The same SONNET_MODEL + LESSON_SYSTEM_PROMPT is used in both paths so a
+// BYOK-generated body is interchangeable with a Pro-generated one in the
+// shared cache.
+// ============================================================================
+
+export interface LessonStreamHandlers {
+  onDelta: (chunk: string) => void
+  onCached?: (generatedAt: string) => void
+  onDone?: () => void
+  onError?: (message: string) => void
+  /** Free user with no BYOK key configured. Caller should open setup. */
+  onMissingKey?: () => void
+}
+
+interface LessonContextResponse {
+  concept: { id: string; name: string; description: string; key_facts: string[] }
+  chunks: Array<{ source_code: string; source_type: string; chunk_text: string }>
+  cached: { body: string; generated_at: string } | null
+}
+
+export async function streamLesson(
+  conceptId: string,
+  handlers: LessonStreamHandlers,
+): Promise<void> {
+  if (getCurrentTier() === 'pro') {
+    return streamLessonViaProxy(conceptId, handlers)
+  }
+  return streamLessonViaBYOK(conceptId, handlers)
+}
+
+// Pro path: server SSE stream from /api/lesson. Same parser shape as the
+// hint route — events are 'cached' (informational), 'delta', 'done', 'error'.
+async function streamLessonViaProxy(
+  conceptId: string,
+  handlers: LessonStreamHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const res = await fetch('/api/lesson', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ concept_id: conceptId }),
+  })
+
+  if (!res.ok || !res.body) {
+    handlers.onError?.(`Lesson request failed: ${res.status}`)
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const evt of events) {
+      const lines = evt.split('\n')
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          // Strip exactly one optional space after `data:` per SSE framing
+          // — preserves payload that begins with whitespace.
+          const raw = line.slice(5)
+          dataLines.push(raw.startsWith(' ') ? raw.slice(1) : raw)
+        }
+      }
+      const data = dataLines.join('\n')
+      if (eventName === 'delta') {
+        handlers.onDelta(data)
+      } else if (eventName === 'cached') {
+        handlers.onCached?.(data)
+      } else if (eventName === 'done') {
+        handlers.onDone?.()
+      } else if (eventName === 'error') {
+        handlers.onError?.(data || 'Lesson failed')
+        return
+      }
+    }
+  }
+}
+
+// BYOK path: fetch context from server (no Anthropic call), render the
+// cached body if present, otherwise stream Anthropic directly with the
+// user's key and POST the result back to the shared cache.
+async function streamLessonViaBYOK(
+  conceptId: string,
+  handlers: LessonStreamHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  // 1. Fetch context (chunks + concept + maybe-cached body)
+  const ctxRes = await fetch(`/api/lesson/context/${encodeURIComponent(conceptId)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!ctxRes.ok) {
+    handlers.onError?.(`Lesson context failed: ${ctxRes.status}`)
+    return
+  }
+  const ctx = (await ctxRes.json()) as LessonContextResponse
+
+  // 2. Cache hit → render the existing body in one call
+  if (ctx.cached) {
+    handlers.onCached?.(ctx.cached.generated_at)
+    handlers.onDelta(ctx.cached.body)
+    handlers.onDone?.()
+    return
+  }
+
+  // 3. Cache miss → BYOK key required to generate
+  let client: Anthropic
+  try {
+    client = getAnthropicClient()
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) {
+      handlers.onMissingKey?.()
+      return
+    }
+    throw err
+  }
+
+  const userContent = buildLessonUserContent(ctx)
+  let fullText = ''
+  try {
+    const stream = await client.messages.stream({
+      model: SONNET_MODEL,
+      max_tokens: 1200,
+      system: LESSON_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userContent }],
+    })
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        handlers.onDelta(event.delta.text)
+      }
+    }
+    handlers.onDone?.()
+  } catch (err) {
+    handlers.onError?.((err as Error).message ?? 'Lesson stream failed')
+    return
+  }
+
+  // 4. Best-effort: contribute to the shared cache so the next reader
+  //    (Pro or BYOK) gets it instantly. Non-fatal if it fails.
+  if (fullText.trim()) {
+    void fetch('/api/lesson/cache', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        concept_id: conceptId,
+        body: fullText,
+        model: SONNET_MODEL,
+      }),
+    }).catch(() => {
+      // Cache contribution is opportunistic — failure shouldn't surface to the user.
+    })
+  }
+}
+
+// ============================================================================
 // Browser-side AI calls (BYOK — uses user's own Anthropic key)
 // ============================================================================
 
@@ -550,6 +904,95 @@ export interface SourceChunk {
   similarity: number
   deep_link: string
   position_label: string
+}
+
+/**
+ * Source material that grounded a single question. No LLM, no embedding —
+ * each question stores the chunk ids it was generated from
+ * (`questions.source_chunk_ids`), so we just hydrate them with a join.
+ *
+ * Used by the quiz post-answer "Source from lectures" disclosure so students
+ * can see the lecture passage their question came from.
+ */
+export interface QuestionSourceChunk {
+  chunk_id: string
+  chunk_text: string
+  source_code: string
+  source_type: string
+  module: string
+  url: string | null
+  locator: Record<string, unknown>
+  /** Type-aware deep link: Panopto ?start= for lectures, #page= for slides. */
+  deep_link: string | null
+  /** Human label like "3:42" or "slide 7". Empty for unknown source types. */
+  position_label: string
+}
+
+function formatChunkTimestamp(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function decorateQuestionChunk(
+  url: string | null,
+  sourceType: string,
+  locator: Record<string, unknown>,
+): { deep_link: string | null; position_label: string } {
+  if (!url) return { deep_link: null, position_label: '' }
+  if (sourceType === 'lecture') {
+    const start = Number(locator.start_seconds || 0)
+    const sep = url.includes('?') ? '&' : '?'
+    return { deep_link: `${url}${sep}start=${start}`, position_label: formatChunkTimestamp(start) }
+  }
+  if (sourceType === 'slides') {
+    const startPage = Number(locator.start_page || 1)
+    const endPage = Number(locator.end_page || startPage)
+    return {
+      deep_link: `${url}#page=${startPage}`,
+      position_label: startPage === endPage ? `slide ${startPage}` : `slides ${startPage}–${endPage}`,
+    }
+  }
+  return { deep_link: url, position_label: '' }
+}
+
+export async function fetchQuestionSourceChunks(
+  chunkIds: string[],
+): Promise<QuestionSourceChunk[]> {
+  if (!chunkIds || chunkIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('source_chunks')
+    .select('id, text, locator, sources!inner(code, source_type, module, url)')
+    .in('id', chunkIds)
+  if (error) throw error
+  // Preserve the order in which chunk ids were stored on the question — that
+  // order is meaningful (the generator put the most relevant chunk first).
+  type Row = {
+    id: string
+    text: string
+    locator: Record<string, unknown>
+    sources: { code: string; source_type: string; module: string; url: string | null }
+  }
+  const rows = (data ?? []) as unknown as Row[]
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  return chunkIds
+    .map((id) => byId.get(id))
+    .filter((r): r is Row => !!r)
+    .map((r) => {
+      const locator = r.locator ?? {}
+      const decorated = decorateQuestionChunk(r.sources.url, r.sources.source_type, locator)
+      return {
+        chunk_id: r.id,
+        chunk_text: r.text,
+        source_code: r.sources.code,
+        source_type: r.sources.source_type,
+        module: r.sources.module,
+        url: r.sources.url,
+        locator,
+        deep_link: decorated.deep_link,
+        position_label: decorated.position_label,
+      }
+    })
 }
 
 export async function searchSources(

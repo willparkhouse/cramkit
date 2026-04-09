@@ -11,6 +11,7 @@ import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { AdminPage } from '@/components/admin/AdminPage'
 import { QuizPage } from '@/components/quiz/QuizPage'
 import { MaterialSearchPage } from '@/components/search/MaterialSearchPage'
+import { StudyPage } from '@/components/study/StudyPage'
 import { SchedulePage } from '@/components/schedule/SchedulePage'
 import { ProgressPage } from '@/components/progress/ProgressPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
@@ -54,7 +55,12 @@ function ProtectedApp() {
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
-          <Route path="/search" element={<MaterialSearchPage />} />
+          <Route path="/study" element={<StudyPage />} />
+          {/* Pure search keeps a route under a new path so the Study page can
+              link to it as a "Find a moment" shortcut. The old /search path
+              redirects to the new /study landing. */}
+          <Route path="/find" element={<MaterialSearchPage />} />
+          <Route path="/search" element={<Navigate to="/study" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/terms" element={<LegalPage doc="terms" />} />
           <Route path="/privacy" element={<LegalPage doc="privacy" />} />
