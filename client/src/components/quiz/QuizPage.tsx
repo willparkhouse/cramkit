@@ -49,10 +49,17 @@ export function QuizPage() {
         ? 'weakest'
         : 'chronological'
   const initialOnlyMistakes = searchParams.get('onlyMistakes') === '1' || rawMode === 'mistakes'
-  const initialModule = searchParams.get('module') || null
+  // ?module= and ?modules= are both honoured: ?module=ID for the legacy
+  // single-module deep links, ?modules=ID,ID for new multi-select shares.
+  const initialModuleIds: string[] = (() => {
+    const multi = searchParams.get('modules')
+    if (multi) return multi.split(',').filter(Boolean)
+    const single = searchParams.get('module')
+    return single ? [single] : []
+  })()
 
   const [filters, setFilters] = useState<QuizFilters>({
-    moduleId: initialModule,
+    moduleIds: initialModuleIds,
     questionType: 'all',
     week: null,
     mode: initialMode,
@@ -61,11 +68,13 @@ export function QuizPage() {
   })
   const [filtersOpen, setFiltersOpen] = useState(false)
 
-  // Get available weeks for the selected module (or all)
+  // Get available weeks for the selected module(s). With no module filter,
+  // all weeks across all enrolled modules are shown.
   const availableWeeks = useMemo(() => {
     let filtered = concepts
-    if (filters.moduleId) {
-      filtered = filtered.filter((c) => c.module_ids.includes(filters.moduleId!))
+    if (filters.moduleIds.length > 0) {
+      const selectedSet = new Set(filters.moduleIds)
+      filtered = filtered.filter((c) => c.module_ids.some((id) => selectedSet.has(id)))
     }
     const weeks = new Map<number, string>()
     for (const c of filtered) {
@@ -76,7 +85,7 @@ export function QuizPage() {
     return Array.from(weeks.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([week, lecture]) => ({ week, lecture }))
-  }, [concepts, filters.moduleId])
+  }, [concepts, filters.moduleIds])
 
   const session = useQuizSession(filters)
   const knowledge = useAppStore((s) => s.knowledge)
@@ -85,8 +94,9 @@ export function QuizPage() {
   // Counts every attempt in `knowledge.history` rather than only this session,
   // so the header reflects long-term progress, not just the current page load.
   const globalStats = useMemo(() => {
+    const selectedSet = new Set(filters.moduleIds)
     const conceptsInScope = concepts.filter((c) => {
-      if (filters.moduleId && !c.module_ids.includes(filters.moduleId)) return false
+      if (selectedSet.size > 0 && !c.module_ids.some((id) => selectedSet.has(id))) return false
       if (filters.week !== null && filters.week !== undefined && c.week !== filters.week) return false
       return true
     })
@@ -101,7 +111,7 @@ export function QuizPage() {
       }
     }
     return { answered, correct }
-  }, [concepts, knowledge, filters.moduleId, filters.week])
+  }, [concepts, knowledge, filters.moduleIds, filters.week])
 
   // Auto-start on first load
   const [started, setStarted] = useState(false)
@@ -184,26 +194,61 @@ export function QuizPage() {
     { value: 'hard', label: 'Hard' },
   ]
 
-  // Build a one-line summary of the active filter state for the collapsed view
-  const activeModuleName = filters.moduleId
-    ? getModuleShortName(exams.find((e) => e.id === filters.moduleId)) || 'Module'
-    : 'All modules'
+  // Build a one-line summary of the active filter state for the collapsed view.
+  // 0 selected = All modules, 1 selected = its short name, N selected = "N modules".
+  const activeModuleName = (() => {
+    if (filters.moduleIds.length === 0) return 'All modules'
+    if (filters.moduleIds.length === 1) {
+      return getModuleShortName(exams.find((e) => e.id === filters.moduleIds[0])) || 'Module'
+    }
+    return `${filters.moduleIds.length} modules`
+  })()
   const activeMode = modes.find((m) => m.mode === filters.mode)?.label || 'Weakest'
   const selectClass = "w-full border border-border rounded-md bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
 
   const filterGroups = (
     <div className="space-y-4">
-      <FilterField label="Module">
-        <select
-          className={selectClass}
-          value={filters.moduleId ?? ''}
-          onChange={(e) => updateFilter({ ...filters, moduleId: e.target.value || null, week: null })}
-        >
-          <option value="">All modules</option>
-          {exams.map((exam) => (
-            <option key={exam.id} value={exam.id}>{exam.name}</option>
-          ))}
-        </select>
+      <FilterField label="Modules">
+        {/* Multi-select chip toggles. Tap "All" to clear selection (= all
+            enrolled modules). Tap a module to add/remove it from the selection.
+            Resetting the week filter when modules change so the user doesn't
+            end up filtering by a week that no longer exists in the new pool. */}
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => updateFilter({ ...filters, moduleIds: [], week: null })}
+            className={
+              filters.moduleIds.length === 0
+                ? 'h-7 px-2.5 rounded-full text-[11px] font-medium border border-primary bg-primary text-primary-foreground transition-colors'
+                : 'h-7 px-2.5 rounded-full text-[11px] font-medium border border-border bg-transparent text-foreground/80 hover:bg-accent transition-colors'
+            }
+          >
+            All
+          </button>
+          {exams.map((exam) => {
+            const selected = filters.moduleIds.includes(exam.id)
+            const shortName = getModuleShortName(exam) || exam.name
+            return (
+              <button
+                key={exam.id}
+                type="button"
+                onClick={() => {
+                  const next = selected
+                    ? filters.moduleIds.filter((id) => id !== exam.id)
+                    : [...filters.moduleIds, exam.id]
+                  updateFilter({ ...filters, moduleIds: next, week: null })
+                }}
+                className={
+                  selected
+                    ? 'h-7 px-2.5 rounded-full text-[11px] font-medium border border-primary bg-primary text-primary-foreground transition-colors'
+                    : 'h-7 px-2.5 rounded-full text-[11px] font-medium border border-border bg-transparent text-foreground/80 hover:bg-accent transition-colors'
+                }
+              >
+                {shortName}
+              </button>
+            )
+          })}
+        </div>
       </FilterField>
 
       {availableWeeks.length > 0 && (
@@ -384,7 +429,7 @@ export function QuizPage() {
             <CardContent className="py-6 text-center">
               <p className="text-muted-foreground mb-4">
                 No {mcqOnly ? 'MCQ ' : ''}questions available
-                {filters.moduleId ? ' for this module' : ''}. Try changing the filters.
+                {filters.moduleIds.length > 0 ? ' for the selected modules' : ''}. Try changing the filters.
               </p>
               <Button onClick={() => session.nextQuestion()}>Try Again</Button>
             </CardContent>

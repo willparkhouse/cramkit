@@ -95,17 +95,21 @@ export function useQuizSession(filters: QuizFilters) {
         },
       }))
 
-      // Attribute to the active quiz module filter if set, otherwise the
-      // concept's first module. Falling back to null is fine — that bucket
-      // becomes "all modules" on the leaderboard rather than being lost.
-      const moduleForBump = filters.moduleId ?? state.concept.module_ids[0] ?? null
+      // Attribute to the active quiz module filter if it's a single-module
+      // selection (most common — leaderboard buckets cleanly). Otherwise
+      // fall back to the concept's first module. Multi-module filter or
+      // no filter both fall through to the same behaviour.
+      const moduleForBump =
+        filters.moduleIds.length === 1
+          ? filters.moduleIds[0]
+          : (state.concept.module_ids[0] ?? null)
       void bumpStudyActivity({
         questionsAnswered: 1,
         questionsCorrect: correct ? 1 : 0,
         moduleId: moduleForBump,
       })
     },
-    [state.question, state.concept, updateKnowledge, markQuestionUsed, filters.moduleId]
+    [state.question, state.concept, updateKnowledge, markQuestionUsed, filters.moduleIds]
   )
 
   const submitFreeForm = useCallback(
@@ -140,7 +144,10 @@ export function useQuizSession(filters: QuizFilters) {
           feedback: result,
         }))
 
-        const moduleForBump = filters.moduleId ?? state.concept.module_ids[0] ?? null
+        const moduleForBump =
+          filters.moduleIds.length === 1
+            ? filters.moduleIds[0]
+            : (state.concept.module_ids[0] ?? null)
         void bumpStudyActivity({
           questionsAnswered: 1,
           questionsCorrect: result.correct ? 1 : 0,
@@ -155,7 +162,7 @@ export function useQuizSession(filters: QuizFilters) {
         setState((s) => ({ ...s, loading: false }))
       }
     },
-    [state.question, state.concept, updateKnowledge, markQuestionUsed, openSetup, filters.moduleId]
+    [state.question, state.concept, updateKnowledge, markQuestionUsed, openSetup, filters.moduleIds]
   )
 
   // "I don't know" — the user has given up on this question, so we mark it

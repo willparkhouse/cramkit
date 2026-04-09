@@ -11,7 +11,8 @@ export type QuizMode = 'chronological' | 'weakest'
 export type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
 export interface QuizFilters {
-  moduleId: string | null
+  /** Empty array = all enrolled modules. Otherwise restricts to the listed exam ids. */
+  moduleIds: string[]
   questionType: 'all' | 'mcq' | 'free_form'
   week: number | null
   mode: QuizMode
@@ -39,9 +40,11 @@ export function pickNextQuestion(
 
   if (concepts.length === 0 || questions.length === 0) return null
 
-  // Filter by module
-  if (filters.moduleId) {
-    concepts = concepts.filter((c) => c.module_ids.includes(filters.moduleId!))
+  // Filter by module(s). Empty array = no module filter (all enrolled).
+  // Multi-select: a concept passes if it belongs to ANY of the selected modules.
+  if (filters.moduleIds.length > 0) {
+    const selectedSet = new Set(filters.moduleIds)
+    concepts = concepts.filter((c) => c.module_ids.some((id) => selectedSet.has(id)))
   }
 
   // Filter by week
