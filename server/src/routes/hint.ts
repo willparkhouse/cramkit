@@ -33,12 +33,13 @@ const app = new Hono<AppEnv>()
 // hit /question-hint/context instead, build the prompt in the browser,
 // and call Anthropic with their own key.
 //
-// 30 hints per minute per user — generous, but blocks scripted abuse.
+// 10 hints per minute per user — one every 6s, well above how fast a stuck
+// student would actually click the hint button.
 app.use(
   '/question-hint',
   requireAuth,
   requirePro,
-  rateLimit({ key: 'question-hint', windowMs: 60_000, max: 30 })
+  rateLimit({ key: 'question-hint', windowMs: 60_000, max: 10 })
 )
 
 // /question-hint/context is the auth-only retrieval endpoint that BYOK
@@ -47,7 +48,7 @@ app.use(
 app.use(
   '/question-hint/context',
   requireAuth,
-  rateLimit({ key: 'question-hint-context', windowMs: 60_000, max: 60 })
+  rateLimit({ key: 'question-hint-context', windowMs: 60_000, max: 15 })
 )
 
 function getServiceClient() {

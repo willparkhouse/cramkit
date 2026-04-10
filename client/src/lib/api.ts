@@ -6,9 +6,12 @@ import {
   HINT_TERSE_PROMPT,
   HINT_DETAILED_PROMPT,
   LESSON_SYSTEM_PROMPT,
+  LESSON_CHAT_SYSTEM_PROMPT,
   buildHintUserContent,
   buildLessonUserContent,
+  buildLessonChatUserContent,
   type HintContextPayload,
+  type LessonChunkPayload,
 } from './aiPrompts'
 import type {
   ExtractConceptsRequest,
@@ -582,6 +585,8 @@ async function consumeSSE(
 
 export interface LessonStreamHandlers {
   onDelta: (chunk: string) => void
+  /** Source chunks the walkthrough is grounded on, in the order [[CITE:n]] indices reference. */
+  onChunks?: (chunks: SourceChunk[]) => void
   onCached?: (generatedAt: string) => void
   onDone?: () => void
   onError?: (message: string) => void
@@ -591,8 +596,45 @@ export interface LessonStreamHandlers {
 
 interface LessonContextResponse {
   concept: { id: string; name: string; description: string; key_facts: string[] }
-  chunks: Array<{ source_code: string; source_type: string; chunk_text: string }>
+  chunks: LessonChunkPayload[]
   cached: { body: string; generated_at: string } | null
+}
+
+/**
+ * Decorate the raw chunk shape returned by the lesson context endpoint into a
+ * SourceChunk so the existing renderWithCitations / source-strip UI can be
+ * reused without forking. Mirrors decorateQuestionChunk but for the lesson
+ * route's payload shape.
+ */
+function decorateLessonChunk(c: LessonChunkPayload): SourceChunk {
+  let deep_link = c.url ?? ''
+  let position_label = ''
+  if (c.url) {
+    if (c.source_type === 'lecture') {
+      const start = Number((c.locator as Record<string, unknown>).start_seconds || 0)
+      const sep = c.url.includes('?') ? '&' : '?'
+      deep_link = `${c.url}${sep}start=${start}`
+      position_label = formatChunkTimestamp(start)
+    } else if (c.source_type === 'slides') {
+      const startPage = Number((c.locator as Record<string, unknown>).start_page || 1)
+      const endPage = Number((c.locator as Record<string, unknown>).end_page || startPage)
+      deep_link = `${c.url}#page=${startPage}`
+      position_label =
+        startPage === endPage ? `slide ${startPage}` : `slides ${startPage}–${endPage}`
+    }
+  }
+  return {
+    chunk_id: c.chunk_id,
+    source_code: c.source_code,
+    source_type: c.source_type,
+    module: c.module,
+    url: c.url ?? '',
+    locator: c.locator,
+    chunk_text: c.chunk_text,
+    similarity: 0,
+    deep_link,
+    position_label,
+  }
 }
 
 export async function streamLesson(
@@ -654,6 +696,13 @@ async function streamLessonViaProxy(
       const data = dataLines.join('\n')
       if (eventName === 'delta') {
         handlers.onDelta(data)
+      } else if (eventName === 'chunks') {
+        try {
+          const raw = JSON.parse(data) as LessonChunkPayload[]
+          handlers.onChunks?.(raw.map(decorateLessonChunk))
+        } catch {
+          // Malformed chunks payload — non-fatal, citations just won't render.
+        }
       } else if (eventName === 'cached') {
         handlers.onCached?.(data)
       } else if (eventName === 'done') {
@@ -685,6 +734,10 @@ async function streamLessonViaBYOK(
     return
   }
   const ctx = (await ctxRes.json()) as LessonContextResponse
+
+  // Emit chunks up front so the citation strip + [[CITE:n]] resolution have
+  // them by the time deltas land. Mirrors the proxy path's 'chunks' SSE event.
+  handlers.onChunks?.(ctx.chunks.map(decorateLessonChunk))
 
   // 2. Cache hit → render the existing body in one call
   if (ctx.cached) {
@@ -740,10 +793,145 @@ async function streamLessonViaBYOK(
         concept_id: conceptId,
         body: fullText,
         model: SONNET_MODEL,
+        source_chunk_ids: ctx.chunks.map((c) => c.chunk_id),
       }),
     }).catch(() => {
       // Cache contribution is opportunistic — failure shouldn't surface to the user.
     })
+  }
+}
+
+// ============================================================================
+// Lesson chat — inline follow-up chat that hangs off the bottom of the lesson
+// walkthrough on the Study page. Same Pro/BYOK split as the walkthrough.
+//
+//   - Pro    → POST /api/lesson-chat (server proxy, plain text stream).
+//   - BYOK   → GET  /api/lesson/context/:id to fetch the same chunks the
+//              walkthrough used, then call Anthropic from the browser.
+//
+// History is sent on each turn so the model can handle "what did you mean by
+// that?" follow-ups. Capped at 12 turns server-side; client trims to last 6
+// pairs to keep payloads tight.
+// ============================================================================
+
+export interface LessonChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface LessonChatHandlers {
+  onDelta: (chunk: string) => void
+  onDone?: () => void
+  onError?: (message: string) => void
+  onMissingKey?: () => void
+}
+
+export interface LessonChatOptions {
+  conceptId: string
+  walkthrough: string
+  history: LessonChatTurn[]
+  question: string
+}
+
+export async function streamLessonChat(
+  opts: LessonChatOptions,
+  handlers: LessonChatHandlers,
+): Promise<void> {
+  if (getCurrentTier() === 'pro') {
+    return streamLessonChatViaProxy(opts, handlers)
+  }
+  return streamLessonChatViaBYOK(opts, handlers)
+}
+
+async function streamLessonChatViaProxy(
+  opts: LessonChatOptions,
+  handlers: LessonChatHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const res = await fetch('/api/lesson-chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      concept_id: opts.conceptId,
+      walkthrough: opts.walkthrough,
+      history: opts.history,
+      question: opts.question,
+    }),
+  })
+  if (!res.ok || !res.body) {
+    handlers.onError?.(`Lesson chat failed: ${res.status}`)
+    return
+  }
+
+  // Plain UTF-8 stream — same shape as /chat and /source-chat.
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = decoder.decode(value, { stream: true })
+    if (chunk) handlers.onDelta(chunk)
+  }
+  handlers.onDone?.()
+}
+
+async function streamLessonChatViaBYOK(
+  opts: LessonChatOptions,
+  handlers: LessonChatHandlers,
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  // Reuse the existing lesson context endpoint to grab the same chunks the
+  // walkthrough was grounded on. The cached body field is ignored here —
+  // the chat needs the live walkthrough text the user is actually looking
+  // at, which the caller passes through opts.walkthrough.
+  const ctxRes = await fetch(`/api/lesson/context/${encodeURIComponent(opts.conceptId)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!ctxRes.ok) {
+    handlers.onError?.(`Lesson context failed: ${ctxRes.status}`)
+    return
+  }
+  const ctx = (await ctxRes.json()) as LessonContextResponse
+
+  let client: Anthropic
+  try {
+    client = getAnthropicClient()
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) {
+      handlers.onMissingKey?.()
+      return
+    }
+    throw err
+  }
+
+  const userContent = buildLessonChatUserContent(ctx, opts.walkthrough, opts.question)
+  const messages: LessonChatTurn[] = [
+    ...opts.history,
+    { role: 'user', content: userContent },
+  ]
+
+  try {
+    const stream = await client.messages.stream({
+      model: SONNET_MODEL,
+      max_tokens: 1500,
+      system: LESSON_CHAT_SYSTEM_PROMPT,
+      messages,
+    })
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        handlers.onDelta(event.delta.text)
+      }
+    }
+    handlers.onDone?.()
+  } catch (err) {
+    handlers.onError?.((err as Error).message ?? 'Lesson chat failed')
   }
 }
 

@@ -11,7 +11,13 @@ import { useAppStore } from '@/store/useAppStore'
 import { useSetup } from '@/lib/setupContext'
 import { getEffectiveScore } from '@/store/selectors'
 import { getModuleShortName, MODULE_COLOURS } from '@/lib/constants'
-import { streamLesson } from '@/lib/api'
+import {
+  streamLesson,
+  streamLessonChat,
+  type LessonChatTurn,
+  type SourceChunk,
+} from '@/lib/api'
+import { renderWithCitations } from '@/lib/citations'
 import { ConceptQuiz } from './ConceptQuiz'
 import {
   BookOpen,
@@ -22,6 +28,12 @@ import {
   CheckCircle2,
   Lock,
   Search,
+  Send,
+  MessageCircle,
+  ExternalLink,
+  FileText,
+  Video,
+  ChevronDown,
 } from 'lucide-react'
 import type { Concept, Exam } from '@/types'
 
@@ -372,8 +384,8 @@ function ModuleStudyRow({
 type LessonState =
   | { phase: 'idle' }
   | { phase: 'loading'; conceptId: string }
-  | { phase: 'streaming'; conceptId: string; text: string; cached: boolean }
-  | { phase: 'done'; conceptId: string; text: string; cached: boolean }
+  | { phase: 'streaming'; conceptId: string; text: string; cached: boolean; chunks: SourceChunk[] }
+  | { phase: 'done'; conceptId: string; text: string; cached: boolean; chunks: SourceChunk[] }
   | { phase: 'error'; conceptId: string; message: string }
   | { phase: 'missing_key'; conceptId: string }
 
@@ -393,54 +405,78 @@ function LessonPanel({
   useEffect(() => {
     setQuizOpen(false)
   }, [conceptId])
+
+  // Per-stream token. Cleanup nullifies it, so any in-flight stream from a
+  // previous mount (or StrictMode double-invoke in dev) stops applying its
+  // tokens to React state. Stable ids mean stream A and stream B can coexist
+  // briefly without colliding.
+  const streamTokenRef = useRef(0)
   // Guard against stale streams when the user clicks a different concept
   // mid-fetch — only the most recent conceptId's tokens should land.
   const activeConceptRef = useRef<string | null>(null)
 
   // Whenever the conceptId changes, kick off a fresh fetch.
+  // IMPORTANT: only depend on conceptId, NOT the `concept` object — that
+  // gets re-created on every parent render via .find() in the parent, so
+  // depending on it would re-fire this effect on unrelated re-renders.
+  // Each invocation gets a unique stream token (incrementing ref) so a
+  // previous stream's tokens are dropped if a new mount has fired in
+  // between — including the StrictMode double-invoke in dev.
   useEffect(() => {
-    if (!conceptId || !concept) {
+    if (!conceptId) {
       setState({ phase: 'idle' })
-      activeConceptRef.current = null
+      streamTokenRef.current++
       return
     }
 
-    activeConceptRef.current = conceptId
+    const myToken = ++streamTokenRef.current
+    // eslint-disable-next-line no-console
+    console.log(`[lesson] start  token=${myToken} concept=${conceptId.slice(0, 8)}`)
     setState({ phase: 'loading', conceptId })
 
     let text = ''
     let cached = false
+    let chunks: SourceChunk[] = []
+    let cancelled = false
+    const isStale = () => cancelled || streamTokenRef.current !== myToken
+
     void streamLesson(conceptId, {
+      onChunks: (incoming) => {
+        if (isStale()) return
+        chunks = incoming
+      },
       onCached: () => {
         cached = true
       },
       onDelta: (chunk) => {
-        if (activeConceptRef.current !== conceptId) return
+        if (isStale()) return
         text += chunk
-        setState({ phase: 'streaming', conceptId, text, cached })
+        setState({ phase: 'streaming', conceptId, text, cached, chunks })
       },
       onDone: () => {
-        if (activeConceptRef.current !== conceptId) return
-        setState({ phase: 'done', conceptId, text, cached })
+        if (isStale()) return
+        // eslint-disable-next-line no-console
+        console.log(`[lesson] done   token=${myToken} concept=${conceptId.slice(0, 8)} chars=${text.length}`)
+        setState({ phase: 'done', conceptId, text, cached, chunks })
       },
       onError: (message) => {
-        if (activeConceptRef.current !== conceptId) return
+        if (isStale()) return
+        // eslint-disable-next-line no-console
+        console.log(`[lesson] error  token=${myToken} concept=${conceptId.slice(0, 8)} msg=${message}`)
         setState({ phase: 'error', conceptId, message })
       },
       onMissingKey: () => {
-        if (activeConceptRef.current !== conceptId) return
+        if (isStale()) return
         setState({ phase: 'missing_key', conceptId })
       },
     })
 
     return () => {
-      // Mark this concept as no longer active on unmount/change so any
-      // in-flight stream stops updating state.
-      if (activeConceptRef.current === conceptId) {
-        activeConceptRef.current = null
-      }
+      cancelled = true
+      // eslint-disable-next-line no-console
+      console.log(`[lesson] cancel token=${myToken} concept=${conceptId.slice(0, 8)}`)
     }
-  }, [conceptId, concept])
+  }, [conceptId])
 
   if (!conceptId || !concept) {
     return (
@@ -483,14 +519,22 @@ function LessonPanel({
             <p className="text-xs text-muted-foreground italic">Generating walkthrough…</p>
           )}
           {(state.phase === 'streaming' || state.phase === 'done') && state.text && (
-            <div className="prose prose-sm dark:prose-invert max-w-none cramkit-chat-prose">
-              <Markdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeKatex]}
-              >
-                {state.text}
-              </Markdown>
-            </div>
+            <>
+              <div className="prose prose-sm dark:prose-invert max-w-none cramkit-chat-prose">
+                <Markdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                  components={{ a: CitationOrLink }}
+                >
+                  {state.chunks.length > 0
+                    ? renderWithCitations(state.text, state.chunks)
+                    : state.text}
+                </Markdown>
+              </div>
+              {state.phase === 'done' && state.chunks.length > 0 && (
+                <CitedSourcesStrip text={state.text} chunks={state.chunks} />
+              )}
+            </>
           )}
           {state.phase === 'missing_key' && (
             <div className="rounded-md bg-muted/50 p-3 space-y-2">
@@ -517,6 +561,18 @@ function LessonPanel({
           )}
         </div>
 
+        {/* Follow-up chat — only once the walkthrough has fully landed, so the
+            model has the same text the student is reading. Resets per concept
+            via the conceptId key prop. */}
+        {state.phase === 'done' && state.text && (
+          <LessonChat
+            key={conceptId}
+            conceptId={conceptId}
+            walkthrough={state.text}
+            chunks={state.chunks}
+          />
+        )}
+
         {/* Quiz me — inline mini-quiz on this concept's questions only */}
         <div className="border-t border-border pt-4 space-y-3">
           {!quizOpen ? (
@@ -533,6 +589,307 @@ function LessonPanel({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Lesson chat — inline follow-up Q&A under the walkthrough. The walkthrough
+// is the shared reference frame: the student can ask "what did you mean by
+// that bit?" and the model sees the same text they're reading.
+//
+// History is local-only and ephemeral: navigating to a different concept
+// resets it (parent uses `key={conceptId}` to remount the subtree). Last 6
+// turn pairs are sent on each request to keep payloads tight.
+// ----------------------------------------------------------------------------
+type ChatPhase = 'idle' | 'streaming' | 'error' | 'missing_key'
+const MAX_HISTORY_PAIRS_SENT = 6
+
+function LessonChat({
+  conceptId,
+  walkthrough,
+  chunks,
+}: {
+  conceptId: string
+  walkthrough: string
+  chunks: SourceChunk[]
+}) {
+  const [turns, setTurns] = useState<LessonChatTurn[]>([])
+  const [input, setInput] = useState('')
+  const [phase, setPhase] = useState<ChatPhase>('idle')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const { openSetup } = useSetup()
+
+  // Track the in-flight stream so a stale response can't pump tokens into a
+  // new turn after the user has already sent the next message.
+  const streamTokenRef = useRef(0)
+
+  const submit = async () => {
+    const question = input.trim()
+    if (!question || phase === 'streaming') return
+
+    // Trim history to the last N pairs before sending. Keep the FULL history
+    // in local state for display — only the wire payload is trimmed.
+    const trimmed = turns.slice(-MAX_HISTORY_PAIRS_SENT * 2)
+
+    // Optimistically append the user turn + an empty assistant turn that
+    // will be filled in as deltas land.
+    setTurns((t) => [
+      ...t,
+      { role: 'user', content: question },
+      { role: 'assistant', content: '' },
+    ])
+    setInput('')
+    setPhase('streaming')
+    setErrorMsg(null)
+
+    const myToken = ++streamTokenRef.current
+
+    await streamLessonChat(
+      { conceptId, walkthrough, history: trimmed, question },
+      {
+        onDelta: (chunk) => {
+          if (streamTokenRef.current !== myToken) return
+          setTurns((t) => {
+            // Append to the last assistant turn in place.
+            const copy = t.slice()
+            const last = copy[copy.length - 1]
+            if (last && last.role === 'assistant') {
+              copy[copy.length - 1] = { ...last, content: last.content + chunk }
+            }
+            return copy
+          })
+        },
+        onDone: () => {
+          if (streamTokenRef.current !== myToken) return
+          setPhase('idle')
+        },
+        onError: (message) => {
+          if (streamTokenRef.current !== myToken) return
+          setPhase('error')
+          setErrorMsg(message)
+          // Drop the empty assistant turn so the failed exchange doesn't
+          // leave a phantom blank reply on screen.
+          setTurns((t) => {
+            const copy = t.slice()
+            const last = copy[copy.length - 1]
+            if (last && last.role === 'assistant' && !last.content) copy.pop()
+            return copy
+          })
+        },
+        onMissingKey: () => {
+          if (streamTokenRef.current !== myToken) return
+          setPhase('missing_key')
+          setTurns((t) => {
+            const copy = t.slice()
+            const last = copy[copy.length - 1]
+            if (last && last.role === 'assistant' && !last.content) copy.pop()
+            return copy
+          })
+        },
+      },
+    )
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      void submit()
+    }
+  }
+
+  return (
+    <div className="border-t border-border pt-4 space-y-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <MessageCircle className="h-3.5 w-3.5" />
+        <span className="font-medium">Ask a follow-up</span>
+        {phase === 'streaming' && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
+      </div>
+
+      {turns.length > 0 && (
+        <div className="space-y-3">
+          {turns.map((turn, i) => (
+            <div
+              key={i}
+              className={
+                turn.role === 'user'
+                  ? 'rounded-md bg-muted/50 px-3 py-2 text-sm'
+                  : 'px-1 text-sm'
+              }
+            >
+              {turn.role === 'user' ? (
+                <div className="whitespace-pre-wrap">{turn.content}</div>
+              ) : turn.content ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none cramkit-chat-prose">
+                  <Markdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                    components={{ a: CitationOrLink }}
+                  >
+                    {chunks.length > 0
+                      ? renderWithCitations(turn.content, chunks)
+                      : turn.content}
+                  </Markdown>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">Thinking…</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {phase === 'missing_key' && (
+        <div className="rounded-md bg-muted/50 p-3 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Lock className="h-4 w-4" />
+            Follow-up chat needs an Anthropic key
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Add your own Anthropic key in Settings, or upgrade to Pro to let
+            cramkit handle the AI for you.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => openSetup('required')}
+            className="h-7 text-xs"
+          >
+            Open Settings
+          </Button>
+        </div>
+      )}
+
+      {phase === 'error' && errorMsg && (
+        <p className="text-xs text-destructive">{errorMsg}</p>
+      )}
+
+      <div className="flex items-end gap-2">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Ask about something in the walkthrough…"
+          rows={2}
+          className="flex-1 min-w-0 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          disabled={phase === 'streaming'}
+        />
+        <Button
+          onClick={() => void submit()}
+          disabled={phase === 'streaming' || !input.trim()}
+          size="sm"
+          className="h-9 px-3 shrink-0"
+        >
+          {phase === 'streaming' ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Citation rendering helpers — shared between the walkthrough Markdown and the
+// chat assistant turns. renderWithCitations rewrites [[CITE:n]] tokens into
+// markdown links with a numeric label and a tooltip; CitationOrLink detects
+// those links by their numeric child + title attribute and styles them as a
+// pill chip. Falls through to a normal underlined link otherwise.
+// ----------------------------------------------------------------------------
+function CitationOrLink({
+  href,
+  title,
+  children,
+}: {
+  href?: string
+  title?: string
+  children?: React.ReactNode
+}) {
+  const text = String(children)
+  const isCitation = !!title && /^\d+$/.test(text.trim())
+  if (isCitation) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        title={title}
+        className="no-underline inline-flex items-center justify-center min-w-[1.25rem] h-[1.25rem] px-1 mx-0.5 rounded-md bg-primary/15 text-primary text-[10px] font-semibold align-text-top hover:bg-primary/25 transition-colors"
+      >
+        {text}
+      </a>
+    )
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="underline decoration-dotted text-primary"
+    >
+      {children}
+    </a>
+  )
+}
+
+// Show only the chunks the walkthrough actually cited (parsed back out of the
+// rendered text), not all 6 retrieved chunks — keeps the strip tight.
+function CitedSourcesStrip({
+  text,
+  chunks,
+}: {
+  text: string
+  chunks: SourceChunk[]
+}) {
+  const cited = useMemo(() => {
+    const seen = new Set<number>()
+    const re = /\[\[CITE:(\d+)\]\]/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const n = parseInt(m[1])
+      if (n >= 1 && n <= chunks.length) seen.add(n)
+    }
+    return Array.from(seen)
+      .sort((a, b) => a - b)
+      .map((n) => ({ n, chunk: chunks[n - 1] }))
+  }, [text, chunks])
+
+  if (cited.length === 0) return null
+
+  return (
+    <details className="group mt-3">
+      <summary className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-0 -rotate-90" />
+        {cited.length} {cited.length === 1 ? 'source' : 'sources'} cited
+      </summary>
+      <div className="grid gap-1.5 grid-cols-1 sm:grid-cols-2 mt-2">
+        {cited.map(({ n, chunk: c }) => {
+          const SourceIcon = c.source_type === 'slides' ? FileText : Video
+          const label = c.position_label
+            ? `${c.source_code} ${c.source_type === 'lecture' ? '@ ' : ''}${c.position_label}`
+            : c.source_code
+          return (
+            <a
+              key={c.chunk_id}
+              href={c.deep_link}
+              target="_blank"
+              rel="noreferrer"
+              className="block rounded-md border border-border bg-background px-2.5 py-2 text-[11px] hover:bg-muted transition-colors"
+            >
+              <div className="flex items-center gap-1 mb-0.5">
+                <span className="inline-flex items-center justify-center min-w-[1rem] h-[1rem] px-1 rounded bg-primary/15 text-primary text-[9px] font-semibold shrink-0">
+                  {n}
+                </span>
+                <SourceIcon className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="font-medium truncate flex-1">{label}</span>
+                <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+              </div>
+              <p className="text-muted-foreground line-clamp-2 text-[10px]">{c.chunk_text}</p>
+            </a>
+          )
+        })}
+      </div>
+    </details>
   )
 }
 

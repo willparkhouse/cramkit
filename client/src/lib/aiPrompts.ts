@@ -5,7 +5,7 @@
  *
  * UPDATE BOTH SITES if you change a prompt:
  *   - server/src/routes/hint.ts   (HINT_RULES_COMMON, HINT_TERSE_PROMPT, HINT_DETAILED_PROMPT)
- *   - server/src/routes/lesson.ts (LESSON_SYSTEM_PROMPT)
+ *   - server/src/routes/lesson.ts (LESSON_SYSTEM_PROMPT, LESSON_CHAT_SYSTEM_PROMPT)
  *
  * The same model + prompt produces the same body, so a BYOK user generating
  * a lesson on their own key contributes a useful entry to the shared cache
@@ -75,11 +75,12 @@ Write a 2-3 paragraph explanation that:
 You will be given:
 - The CONCEPT name and the lecturer's description of it
 - The KEY FACTS the lecturer emphasised
-- A set of SOURCE CHUNKS retrieved from the actual lectures and slides
+- A set of SOURCE CHUNKS retrieved from the actual lectures and slides, listed as numbered sources [1], [2], …
 
 Rules:
 - Stay grounded in the source chunks. Don't invent examples or details that aren't there.
 - Use the lecturer's exact phrasing and notation when the chunks have it. Students recognise their own course's terminology.
+- When you state a specific fact, definition, formula, or example that comes from a chunk, cite it inline using the exact form [[CITE:N]] where N is the source number. You may cite multiple sources in one sentence ([[CITE:1]] [[CITE:3]]). Only cite numbers that actually appear in the SOURCE CHUNKS list — never invent citations. Aim for 3-6 citations across the whole walkthrough; cite where it adds value, don't sprinkle them.
 - Plain prose. No headings, no bullet points. Treat this like a textbook section, not a slide deck.
 - For maths, use LaTeX in dollar signs: $x^2$ inline or $$\\sum_i x_i$$ on its own line for display.
 - Aim for ~250-400 words. Long enough to actually teach, short enough to read in 2 minutes.
@@ -87,6 +88,25 @@ Rules:
 - Don't add a "summary" or "in summary" closing line. The last paragraph IS the summary.
 
 If the source chunks are sparse or off-topic, write what you can from the description and key facts and end with: "(This walkthrough uses limited source material — refer back to the lecture for the full treatment.)"`
+
+export const LESSON_CHAT_SYSTEM_PROMPT = `You are a tutor sitting next to a university student while they read a lesson walkthrough about ONE specific concept from their course. The walkthrough has just been generated for them; they have a follow-up question about something in it.
+
+You will be given:
+- The CONCEPT name and the lecturer's description of it
+- The KEY FACTS the lecturer emphasised
+- The WALKTHROUGH the student just read (treat this as the shared reference frame — they may say "this", "that bit", "the second paragraph")
+- A set of SOURCE CHUNKS retrieved from the actual lectures and slides
+- The chat HISTORY so far (if any), then their latest question
+
+Rules:
+- Stay focused on the concept the walkthrough is about. If the student asks something tangential, answer briefly and gently steer back.
+- Treat the walkthrough as the shared context. Don't restate it — build on it. If they ask "what did you mean by X?", explain X without re-explaining the whole topic.
+- Stay grounded in the walkthrough and the source chunks. Don't invent examples or details that aren't there.
+- Use the lecturer's exact phrasing and notation when the chunks have it.
+- The SOURCE CHUNKS are listed as numbered sources [1], [2], … — the SAME numbering the walkthrough already used. When you state a specific fact from a chunk, cite it inline using [[CITE:N]] where N is the source number. Only cite numbers that actually appear below; never invent citations.
+- For maths, use LaTeX in dollar signs: $x^2$ inline or $$\\sum_i x_i$$ on its own line for display.
+- Be concise. 1-3 short paragraphs is usually right. No headings. Bullets only if the question genuinely demands a list.
+- If you genuinely don't know from the material in front of you, say so honestly rather than guessing.`
 
 // ----------------------------------------------------------------------------
 // User-content builders. Mirror the server's buildHintUserContent and
@@ -142,16 +162,27 @@ SOURCE CHUNKS
 ${chunkBlock}${previousBlock}`
 }
 
+export interface LessonChunkPayload {
+  chunk_id: string
+  source_id: string
+  source_code: string
+  source_type: string
+  module: string
+  url: string | null
+  locator: Record<string, unknown>
+  chunk_text: string
+}
+
 export interface LessonContextPayload {
   concept: { id: string; name: string; description: string; key_facts: string[] }
-  chunks: Array<{ source_code: string; source_type: string; chunk_text: string }>
+  chunks: LessonChunkPayload[]
   cached: { body: string; generated_at: string } | null
 }
 
 export function buildLessonUserContent(ctx: LessonContextPayload): string {
   const chunkBlock = ctx.chunks.length
     ? ctx.chunks
-        .map((ch, i) => `[CHUNK ${i + 1}] (${ch.source_code}, ${ch.source_type})\n${ch.chunk_text}`)
+        .map((ch, i) => `[${i + 1}] (${ch.source_type}) ${ch.source_code}\n${ch.chunk_text}`)
         .join('\n\n---\n\n')
     : '(no chunks retrieved)'
   return `CONCEPT
@@ -159,7 +190,34 @@ Name: ${ctx.concept.name}
 Description: ${ctx.concept.description}
 Key facts: ${ctx.concept.key_facts.join('; ')}
 
-SOURCE CHUNKS
+SOURCE CHUNKS (cite as [[CITE:N]] using these numbers)
 
 ${chunkBlock}`
+}
+
+export function buildLessonChatUserContent(
+  ctx: LessonContextPayload,
+  walkthrough: string,
+  question: string,
+): string {
+  const chunkBlock = ctx.chunks.length
+    ? ctx.chunks
+        .map((ch, i) => `[${i + 1}] (${ch.source_type}) ${ch.source_code}\n${ch.chunk_text}`)
+        .join('\n\n---\n\n')
+    : '(no chunks retrieved)'
+  return `CONCEPT
+Name: ${ctx.concept.name}
+Description: ${ctx.concept.description}
+Key facts: ${ctx.concept.key_facts.join('; ')}
+
+WALKTHROUGH (the student is currently reading this — already cited as [[CITE:N]] using the same source numbers below)
+
+${walkthrough}
+
+SOURCE CHUNKS (cite as [[CITE:N]] using these numbers)
+
+${chunkBlock}
+
+STUDENT QUESTION
+${question}`
 }

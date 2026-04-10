@@ -59,14 +59,13 @@ function validateMessages(raw: unknown): ChatMessage[] | null {
   return out
 }
 
-// Rate limits are per-user and apply to ALL three Pro proxy endpoints. The
-// streaming endpoints (chat / source-chat) are the most expensive — a 20/min
-// cap means even if a user holds the throttle wide open, the worst-case
-// monthly burn is bounded to roughly 20 × 60 × 24 × 30 = ~860k requests, of
-// which only a fraction will hit the model (most will be empty/short).
-app.use('/chat', requireAuth, requirePro, rateLimit({ key: 'proxy-chat', windowMs: 60_000, max: 20 }))
-app.use('/source-chat', requireAuth, requirePro, rateLimit({ key: 'proxy-source-chat', windowMs: 60_000, max: 20 }))
-app.use('/evaluate', requireAuth, requirePro, rateLimit({ key: 'proxy-evaluate', windowMs: 60_000, max: 60 }))
+// Rate limits are per-user and tuned just above realistic human pace. A real
+// student reading + thinking + typing tops out at maybe 1-2 messages/minute;
+// the caps below leave headroom for a fast/frustrated user without giving a
+// runaway script free reign over platform credit.
+app.use('/chat', requireAuth, requirePro, rateLimit({ key: 'proxy-chat', windowMs: 60_000, max: 6 }))
+app.use('/source-chat', requireAuth, requirePro, rateLimit({ key: 'proxy-source-chat', windowMs: 60_000, max: 6 }))
+app.use('/evaluate', requireAuth, requirePro, rateLimit({ key: 'proxy-evaluate', windowMs: 60_000, max: 20 }))
 
 /**
  * Reject obviously oversized request bodies before parsing them. Hono parses
