@@ -25,6 +25,7 @@ import { evaluateAnswer, MissingApiKeyError } from '@/lib/api'
 import { useSetup } from '@/lib/setupContext'
 import { MCQOptions } from '@/components/quiz/MCQOptions'
 import { FreeFormAnswer } from '@/components/quiz/FreeFormAnswer'
+import { QuestionFlagButton } from '@/components/quiz/QuestionFlagButton'
 import {
   CheckCircle,
   XCircle,
@@ -174,14 +175,17 @@ export function ConceptQuiz({ conceptId, onClose }: { conceptId: string; onClose
           <span>
             Question {index + 1} of {questions.length}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="h-5 px-2 text-[11px]"
-          >
-            Close quiz
-          </Button>
+          <div className="flex items-center gap-1">
+            <QuestionFlagButton questionId={question.id} />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="h-5 px-2 text-[11px]"
+            >
+              Close quiz
+            </Button>
+          </div>
         </div>
         <p className="text-sm font-medium leading-relaxed">{question.question}</p>
         {question.type === 'mcq' && question.options ? (
@@ -216,9 +220,12 @@ export function ConceptQuiz({ conceptId, onClose }: { conceptId: string; onClose
         <span>
           Question {index + 1} of {questions.length}
         </span>
-        <span>
-          {score.correct}/{score.total} so far
-        </span>
+        <div className="flex items-center gap-2">
+          <span>
+            {score.correct}/{score.total} so far
+          </span>
+          <QuestionFlagButton questionId={question.id} />
+        </div>
       </div>
 
       <p className="text-sm font-medium leading-relaxed">{question.question}</p>

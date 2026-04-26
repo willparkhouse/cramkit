@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { SkipForward, Lightbulb, X, Loader2 } from 'lucide-react'
 import { MCQOptions } from './MCQOptions'
 import { FreeFormAnswer } from './FreeFormAnswer'
+import { QuestionFlagButton } from './QuestionFlagButton'
 import { useAppStore } from '@/store/useAppStore'
 import { getModuleShortName } from '@/lib/constants'
 import { streamHint } from '@/lib/api'
@@ -179,6 +180,7 @@ export function QuestionCard({
             <SkipForward className="h-3 w-3 mr-1" />
             Skip
           </Button>
+          <QuestionFlagButton questionId={question.id} />
         </div>
         <CardTitle className="text-base font-medium leading-relaxed">
           {question.question}

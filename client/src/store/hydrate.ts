@@ -40,6 +40,23 @@ export async function hydrateStore(): Promise<void> {
 }
 
 /**
+ * Admin-only: load the flagged-question map so the flag UI can render its
+ * orange/grey state. Non-admins never call this; the store stays empty for
+ * them and the admin-only flag button never renders anyway.
+ */
+export async function hydrateQuestionFlags(): Promise<void> {
+  const store = useAppStore.getState()
+  try {
+    const flags = await api.adminListQuestionFlags()
+    const map: Record<string, { comment: string | null }> = {}
+    for (const f of flags) map[f.question_id] = { comment: f.comment }
+    store.setQuestionFlags(map)
+  } catch (err) {
+    console.error('Failed to hydrate question flags:', err)
+  }
+}
+
+/**
  * Re-fetch concepts/questions after enrollment changes.
  * Called from the modules page after enroll/unenroll.
  */

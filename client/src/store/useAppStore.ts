@@ -10,6 +10,8 @@ interface AppState {
   questions: Question[]
   knowledge: Record<string, KnowledgeEntry>
   revisionSlots: RevisionSlot[]
+  /** Admin-only: question_id → flag comment (null if no comment). Empty for non-admins. */
+  questionFlags: Record<string, { comment: string | null }>
 
   // UI state
   hydrated: boolean
@@ -26,6 +28,9 @@ interface AppState {
   setKnowledge: (knowledge: Record<string, KnowledgeEntry>) => void
   setRevisionSlots: (slots: RevisionSlot[]) => void
   setIngestionStatus: (status: IngestionStatus) => void
+  setQuestionFlags: (flags: Record<string, { comment: string | null }>) => void
+  setQuestionFlag: (questionId: string, comment: string | null) => void
+  clearQuestionFlag: (questionId: string) => void
 
   // Quiz actions
   updateKnowledge: (conceptId: string, questionId: string, result: 'correct' | 'partial' | 'incorrect') => void
@@ -39,6 +44,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   questions: [],
   knowledge: {},
   revisionSlots: [],
+  questionFlags: {},
   hydrated: false,
   ingestionStatus: 'idle',
 
@@ -56,6 +62,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setKnowledge: (knowledge) => set({ knowledge }),
   setRevisionSlots: (slots) => set({ revisionSlots: slots }),
   setIngestionStatus: (status) => set({ ingestionStatus: status }),
+  setQuestionFlags: (flags) => set({ questionFlags: flags }),
+  setQuestionFlag: (questionId, comment) => set((state) => ({
+    questionFlags: { ...state.questionFlags, [questionId]: { comment } },
+  })),
+  clearQuestionFlag: (questionId) => set((state) => {
+    const next = { ...state.questionFlags }
+    delete next[questionId]
+    return { questionFlags: next }
+  }),
 
   updateKnowledge: (conceptId, questionId, result) => {
     const state = get()

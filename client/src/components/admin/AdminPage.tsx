@@ -18,13 +18,19 @@ import {
   adminUploadTranscript,
   adminListModuleRequests,
   adminLinkModuleRequest,
+  adminListQuestionFlags,
+  adminUnflagQuestion,
+  analyzePaper,
   type AdminModule,
   type AdminSource,
   type AdminModuleRequest,
+  type AdminQuestionFlag,
+  type PaperQuestion,
 } from '@/lib/api'
-import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle, CheckCircle, RefreshCw, Sparkles, MinusCircle, Pencil, Bell, ThumbsUp, Workflow } from 'lucide-react'
+import { Loader2, Plus, Trash2, FileText, Mic, BookOpen, AlertCircle, CheckCircle, RefreshCw, Sparkles, MinusCircle, Pencil, Bell, ThumbsUp, Workflow, ScrollText, Upload, Download, Flag } from 'lucide-react'
+import { useAppStore } from '@/store/useAppStore'
 
-type TabKey = 'status' | 'slides' | 'transcripts' | 'pipeline' | 'notes' | 'requests'
+type TabKey = 'status' | 'slides' | 'transcripts' | 'pipeline' | 'notes' | 'requests' | 'papers' | 'flagged'
 
 export function AdminPage() {
   const [tab, setTab] = useState<TabKey>('status')
@@ -76,6 +82,8 @@ export function AdminPage() {
           <TabsTrigger value="pipeline"><Workflow className="h-4 w-4 mr-1.5" />Pipeline</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
           <TabsTrigger value="requests"><Bell className="h-4 w-4 mr-1.5" />Requests</TabsTrigger>
+          <TabsTrigger value="papers"><ScrollText className="h-4 w-4 mr-1.5" />Past Papers</TabsTrigger>
+          <TabsTrigger value="flagged"><Flag className="h-4 w-4 mr-1.5" />Flagged</TabsTrigger>
         </TabsList>
 
         <TabsContent value="status">
@@ -101,7 +109,242 @@ export function AdminPage() {
         <TabsContent value="requests">
           <RequestsTab modules={modules ?? []} />
         </TabsContent>
+
+        <TabsContent value="papers">
+          <PastPapersTab modules={modules ?? []} moduleSlug={moduleSlug} setModuleSlug={setModuleSlug} />
+        </TabsContent>
+
+        <TabsContent value="flagged">
+          <FlaggedTab modules={modules ?? []} />
+        </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Past Papers tab — upload a PDF, extract text client-side, send to Sonnet to
+// map each question to the week(s) of content it assesses. Nothing persisted.
+// ----------------------------------------------------------------------------
+function PastPapersTab({
+  modules,
+  moduleSlug,
+  setModuleSlug,
+}: {
+  modules: AdminModule[]
+  moduleSlug: string
+  setModuleSlug: (s: string) => void
+}) {
+  const [analyzing, setAnalyzing] = useState(false)
+  const [results, setResults] = useState<PaperQuestion[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+
+  const selectedModule = modules.find((m) => m.slug === moduleSlug)
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!selectedModule) {
+      setError('Select a module first')
+      return
+    }
+
+    setFileName(file.name)
+    setError(null)
+    setResults(null)
+    setAnalyzing(true)
+
+    try {
+      // Extract text from PDF client-side using pdfjs-dist
+      const arrayBuffer = await file.arrayBuffer()
+      const pdfjs = await import('pdfjs-dist')
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).toString()
+
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+      const pages: string[] = []
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i)
+        const content = await page.getTextContent()
+        const text = content.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' ')
+        if (text.trim()) pages.push(text)
+      }
+
+      const examText = pages.join('\n\n--- Page Break ---\n\n')
+      if (!examText.trim()) {
+        setError('Could not extract any text from this PDF. It may be a scanned image — try a text-based PDF.')
+        setAnalyzing(false)
+        return
+      }
+
+      const { questions } = await analyzePaper(selectedModule.id, examText)
+      setResults(questions)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  // Aggregate: how many questions per week?
+  const weekSummary = results
+    ? (() => {
+        const map = new Map<number, number>()
+        for (const q of results) {
+          for (const w of q.weeks) map.set(w, (map.get(w) ?? 0) + 1)
+        }
+        return [...map.entries()].sort(([a], [b]) => a - b)
+      })()
+    : null
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Module</label>
+          <select
+            className="block rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            value={moduleSlug}
+            onChange={(e) => {
+              setModuleSlug(e.target.value)
+              setResults(null)
+              setFileName(null)
+            }}
+          >
+            {modules.map((m) => (
+              <option key={m.slug} value={m.slug}>{m.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="inline-flex items-center gap-2 cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted transition-colors">
+            <Upload className="h-4 w-4" />
+            {analyzing ? 'Analyzing…' : 'Upload past paper PDF'}
+            <input
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={handleFile}
+              disabled={analyzing}
+            />
+          </label>
+        </div>
+
+        {fileName && (
+          <span className="text-xs text-muted-foreground">{fileName}</span>
+        )}
+        {analyzing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {weekSummary && weekSummary.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-medium text-muted-foreground">Week coverage:</span>
+          {weekSummary.map(([week, count]) => (
+            <Badge key={week} variant="secondary" className="text-xs">
+              W{week}: {count} Q{count !== 1 ? 's' : ''}
+            </Badge>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs ml-auto"
+            onClick={() => {
+              if (!results || !selectedModule) return
+              const escape = (s: string) => `"${s.replace(/"/g, '""')}"`
+              const header = 'Question,Summary,Weeks,Concepts,Confidence'
+              const rows = results.map((q) =>
+                [
+                  escape(q.question),
+                  escape(q.summary),
+                  escape(q.weeks.map((w) => `W${w}`).join('; ')),
+                  escape(q.concepts.join('; ')),
+                  q.confidence,
+                ].join(',')
+              )
+              const csv = [header, ...rows].join('\n')
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `${selectedModule.slug}-paper-analysis.csv`
+              a.click()
+              URL.revokeObjectURL(url)
+            }}
+          >
+            <Download className="h-3 w-3 mr-1" />
+            CSV
+          </Button>
+        </div>
+      )}
+
+      {results && results.length > 0 && (
+        <div className="rounded-md border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50">
+                <th className="px-3 py-2 text-left font-medium text-xs">Q</th>
+                <th className="px-3 py-2 text-left font-medium text-xs">Summary</th>
+                <th className="px-3 py-2 text-left font-medium text-xs">Weeks</th>
+                <th className="px-3 py-2 text-left font-medium text-xs">Concepts</th>
+                <th className="px-3 py-2 text-left font-medium text-xs w-16">Conf.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((q, i) => (
+                <tr key={i} className="border-b border-border/50 last:border-0">
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{q.question}</td>
+                  <td className="px-3 py-2 text-xs">{q.summary}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {q.weeks.length > 0
+                        ? q.weeks.map((w) => (
+                            <Badge key={w} variant="outline" className="text-[10px] px-1.5 py-0">
+                              W{w}
+                            </Badge>
+                          ))
+                        : <span className="text-xs text-muted-foreground italic">unknown</span>}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {q.concepts.map((c, j) => (
+                        <Badge key={j} variant="secondary" className="text-[10px] px-1.5 py-0">
+                          {c}
+                        </Badge>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge
+                      variant={q.confidence === 'high' ? 'default' : q.confidence === 'medium' ? 'secondary' : 'outline'}
+                      className="text-[10px] px-1.5 py-0"
+                    >
+                      {q.confidence}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {results && results.length === 0 && (
+        <p className="text-sm text-muted-foreground italic">No questions found in the paper.</p>
+      )}
     </div>
   )
 }
@@ -1456,5 +1699,127 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
       {children}
     </label>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Flagged tab — review queue for questions admins have marked as needing
+// attention while quizzing or reading walkthroughs. Listing comes from the
+// server (joined with question + concept + module so we don't need a per-row
+// fetch). Unflag here also clears the local store entry so the inline flag
+// button on Quiz/Study reflects the change without a refresh.
+// ----------------------------------------------------------------------------
+function FlaggedTab({ modules }: { modules: AdminModule[] }) {
+  const [flags, setFlags] = useState<AdminQuestionFlag[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [unflagging, setUnflagging] = useState<string | null>(null)
+  const clearFlag = useAppStore((s) => s.clearQuestionFlag)
+
+  const reload = useCallback(async () => {
+    setError(null)
+    try {
+      setFlags(await adminListQuestionFlags())
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }, [])
+
+  useEffect(() => { void reload() }, [reload])
+
+  const moduleNameById = new Map(modules.map((m) => [m.id, m.name]))
+
+  const onUnflag = async (questionId: string) => {
+    setUnflagging(questionId)
+    try {
+      await adminUnflagQuestion(questionId)
+      clearFlag(questionId)
+      setFlags((prev) => (prev ?? []).filter((f) => f.question_id !== questionId))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setUnflagging(null)
+    }
+  }
+
+  if (flags === null) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && (
+        <Card className="border-destructive">
+          <CardContent className="pt-4 text-sm text-destructive flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" /> {error}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {flags.length === 0
+            ? 'No flagged questions.'
+            : `${flags.length} flagged question${flags.length === 1 ? '' : 's'} awaiting review.`}
+        </p>
+        <Button variant="ghost" size="sm" onClick={() => void reload()} className="h-7 text-xs">
+          <RefreshCw className="h-3 w-3 mr-1.5" /> Refresh
+        </Button>
+      </div>
+
+      {flags.length > 0 && (
+        <div className="space-y-2">
+          {flags.map((f) => {
+            const moduleNames = f.module_ids
+              .map((id) => moduleNameById.get(id))
+              .filter(Boolean) as string[]
+            return (
+              <Card key={f.question_id}>
+                <CardContent className="py-3 space-y-2">
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <Badge variant="outline" className="text-[10px]">{f.concept_name}</Badge>
+                    {moduleNames.map((m) => (
+                      <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>
+                    ))}
+                    {f.question_type && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {f.question_type === 'mcq' ? 'MCQ' : 'Free form'}
+                      </Badge>
+                    )}
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {new Date(f.updated_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed">{f.question_text}</p>
+                  {f.comment && (
+                    <p className="text-xs text-muted-foreground italic border-l-2 border-orange-500/50 pl-2">
+                      {f.comment}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void onUnflag(f.question_id)}
+                      disabled={unflagging === f.question_id}
+                      className="h-7 text-xs"
+                    >
+                      {unflagging === f.question_id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <>Clear flag</>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }

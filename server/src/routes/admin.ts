@@ -7,6 +7,8 @@ import { createClient } from '@supabase/supabase-js'
 import { requireAuth, requireAdmin } from '../lib/auth.js'
 import { ingestSlideDeck } from '../lib/slideIngest.js'
 import { ingestTranscript } from '../lib/transcriptIngest.js'
+import { anthropic, SONNET_MODEL } from '../lib/anthropic.js'
+import { retrieveChunks } from '../lib/retrieval.js'
 
 type AppEnv = { Variables: { user: { id: string; email?: string } } }
 const app = new Hono<AppEnv>()
@@ -533,6 +535,254 @@ app.patch('/admin/modules/:id/week-titles', async (c) => {
   }
 
   return c.json({ updated, weeks_set: updates.length })
+})
+
+// ----------------------------------------------------------------------------
+// POST /admin/analyze-paper — extract exam questions from raw PDF text and
+// map each to the week(s) of content it's assessing. Nothing persisted.
+// ----------------------------------------------------------------------------
+const MAX_EXAM_TEXT_BYTES = 100_000
+
+app.post('/admin/analyze-paper', async (c) => {
+  const body = await c.req.json().catch(() => null) as
+    | { module_id?: unknown; exam_text?: unknown }
+    | null
+  if (!body) return c.json({ error: 'invalid body' }, 400)
+
+  const moduleId = typeof body.module_id === 'string' ? body.module_id : null
+  const examText = typeof body.exam_text === 'string' ? body.exam_text.trim() : null
+  if (!moduleId || !examText) {
+    return c.json({ error: 'module_id and exam_text required' }, 400)
+  }
+  if (examText.length > MAX_EXAM_TEXT_BYTES) {
+    return c.json({ error: 'exam_text too large' }, 413)
+  }
+
+  // Fetch the module's concepts grouped by week so the model knows what
+  // content lives in which week.
+  const sb = getServiceClient()
+  const { data: concepts, error: conceptErr } = await sb
+    .from('concepts')
+    .select('name, description, week, key_facts')
+    .contains('module_ids', [moduleId])
+    .order('week')
+  if (conceptErr) return c.json({ error: 'Failed to fetch concepts' }, 500)
+  if (!concepts || concepts.length === 0) {
+    return c.json({ error: 'No concepts found for this module' }, 404)
+  }
+
+  // Build a concise week → concepts reference for the model.
+  const weekMap = new Map<number, string[]>()
+  for (const c2 of concepts) {
+    const w = c2.week ?? 0
+    const entry = weekMap.get(w) ?? []
+    entry.push(`${c2.name}: ${c2.description}`)
+    weekMap.set(w, entry)
+  }
+  const weekReference = [...weekMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([week, items]) => `## Week ${week}\n${items.map((s) => `- ${s}`).join('\n')}`)
+    .join('\n\n')
+
+  const systemPrompt = `You are an exam analysis tool. You will be given:
+1. A COURSE SYLLABUS showing which concepts are taught in which week
+2. The full text of a PAST EXAM PAPER
+
+Your task: identify each question (and sub-question) in the exam paper, then determine which week's content it primarily assesses. A question may test content from multiple weeks — list all relevant weeks.
+
+Output a JSON array (no markdown fences, no commentary) where each element has:
+- "question": the question number/label as it appears in the paper (e.g. "1a", "2b(ii)", "Q3")
+- "summary": one-sentence summary of what the question asks
+- "weeks": array of week numbers (integers) that the question tests
+- "concepts": array of concept names from the syllabus that are relevant
+- "confidence": "high" | "medium" | "low" — how confident you are in the mapping
+
+If a question tests general knowledge not clearly tied to any week, use weeks: [] and confidence: "low".
+
+Be thorough — don't skip sub-questions. Parse the exam structure carefully.`
+
+  const userContent = `COURSE SYLLABUS (concepts by week)
+
+${weekReference}
+
+PAST EXAM PAPER
+
+${examText}`
+
+  try {
+    const response = await anthropic.messages.create({
+      model: SONNET_MODEL,
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+    })
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    // Try to parse the JSON array from the response.
+    const match = text.match(/\[[\s\S]*\]/)
+    if (!match) {
+      return c.json({ error: 'Model did not return valid JSON', raw: text }, 502)
+    }
+    try {
+      const questions = JSON.parse(match[0])
+      return c.json({ questions })
+    } catch {
+      return c.json({ error: 'Failed to parse model output', raw: text }, 502)
+    }
+  } catch (err) {
+    console.error('analyze-paper failed:', err)
+    return c.json({ error: (err as Error).message }, 500)
+  }
+})
+
+// ----------------------------------------------------------------------------
+// POST /admin/backfill-positions — one-shot: for every concept without a
+// position, embed its name+description, find the best-matching slide chunk
+// in the same module, and set position = that chunk's start_page (or
+// start_seconds for lectures). This gives lecture-order sorting even for
+// concepts that predate the pipeline's position tracking.
+//
+// Idempotent: only touches rows where position IS NULL.
+// ----------------------------------------------------------------------------
+app.post('/admin/backfill-positions', async (c) => {
+  const sb = getServiceClient()
+
+  // Fetch concepts without a position, grouped by module slug.
+  const { data: concepts, error: cErr } = await sb
+    .from('concepts')
+    .select('id, name, description, module_ids, week')
+    .is('position', null)
+  if (cErr) return c.json({ error: cErr.message }, 500)
+  if (!concepts || concepts.length === 0) {
+    return c.json({ message: 'All concepts already have positions', updated: 0 })
+  }
+
+  // Resolve module_id → slug
+  const moduleIds = [...new Set(concepts.flatMap((c2: { module_ids: string[] }) => c2.module_ids))]
+  const { data: exams } = await sb.from('exams').select('id, slug').in('id', moduleIds)
+  const slugById = new Map((exams ?? []).map((e: { id: string; slug: string }) => [e.id, e.slug]))
+
+  let updated = 0
+  const errors: string[] = []
+
+  for (const concept of concepts) {
+    const moduleSlug = slugById.get(concept.module_ids[0])
+    if (!moduleSlug) continue
+
+    try {
+      const query = `${concept.name}. ${concept.description ?? ''}`
+      const chunks = await retrieveChunks({
+        query,
+        module: moduleSlug,
+        matchCount: 1,
+        sourceTypes: ['slides'],
+        endpoint: 'backfill-positions',
+      })
+
+      if (chunks.length === 0) continue
+
+      const locator = chunks[0].locator ?? {}
+      // Use start_page for slides, start_seconds for lectures.
+      // This gives a monotonically increasing number through the course material.
+      let sortKey: number
+      if (chunks[0].source_type === 'slides') {
+        sortKey = Number(locator.start_page ?? 9999)
+      } else {
+        sortKey = Number(locator.start_seconds ?? 9999)
+      }
+
+      // Offset by week * 1000 so cross-week ordering is correct even if
+      // page numbers reset per week's slide deck.
+      const position = ((concept.week ?? 0) * 1000) + sortKey
+
+      const { error: uErr } = await sb
+        .from('concepts')
+        .update({ position })
+        .eq('id', concept.id)
+      if (uErr) {
+        errors.push(`${concept.name}: ${uErr.message}`)
+      } else {
+        updated++
+      }
+    } catch (err) {
+      errors.push(`${concept.name}: ${(err as Error).message}`)
+    }
+  }
+
+  return c.json({ updated, total: concepts.length, errors: errors.slice(0, 20) })
+})
+
+// ----------------------------------------------------------------------------
+// Question flags — admin review queue. List, set/update, and clear.
+// ----------------------------------------------------------------------------
+
+// List all flagged questions, joined with question text + concept name +
+// owning module(s), so the admin tab can render a single review list without
+// extra round trips.
+app.get('/admin/question-flags', async (c) => {
+  const sb = getServiceClient()
+  const { data, error } = await sb
+    .from('question_flags')
+    .select(`
+      question_id, comment, created_at, updated_at, flagged_by,
+      questions!inner (
+        id, question, type, concept_id,
+        concepts!inner ( id, name, module_ids )
+      )
+    `)
+    .order('created_at', { ascending: false })
+  if (error) return c.json({ error: error.message }, 500)
+
+  const flags = (data ?? []).map((row: any) => ({
+    question_id: row.question_id,
+    comment: row.comment,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    flagged_by: row.flagged_by,
+    question_text: row.questions?.question ?? '',
+    question_type: row.questions?.type ?? null,
+    concept_id: row.questions?.concepts?.id ?? null,
+    concept_name: row.questions?.concepts?.name ?? '',
+    module_ids: row.questions?.concepts?.module_ids ?? [],
+  }))
+
+  return c.json({ flags })
+})
+
+// Upsert a flag. Body: { comment?: string }. Idempotent — calling on an
+// already-flagged question updates the comment in place.
+app.put('/admin/question-flags/:questionId', async (c) => {
+  const questionId = c.req.param('questionId')
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({}))
+  const comment = typeof body.comment === 'string' ? body.comment : null
+
+  const sb = getServiceClient()
+  const { error } = await sb.from('question_flags').upsert(
+    {
+      question_id: questionId,
+      flagged_by: user.id,
+      comment,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'question_id' },
+  )
+  if (error) return c.json({ error: error.message }, 500)
+
+  return c.json({ ok: true })
+})
+
+// Clear a flag.
+app.delete('/admin/question-flags/:questionId', async (c) => {
+  const questionId = c.req.param('questionId')
+  const sb = getServiceClient()
+  const { error } = await sb
+    .from('question_flags')
+    .delete()
+    .eq('question_id', questionId)
+  if (error) return c.json({ error: error.message }, 500)
+
+  return c.json({ ok: true })
 })
 
 export default app

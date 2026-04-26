@@ -78,7 +78,7 @@ export async function extractConcepts(
   // Step 1: Extract concepts per file
   callbacks.onStageChange('Extracting concepts...')
 
-  type ExtractedConcept = { name: string; description: string; key_facts: string[]; difficulty: number; source_excerpt: string; week: number | null; lecture: string | null }
+  type ExtractedConcept = { name: string; description: string; key_facts: string[]; difficulty: number; source_excerpt: string; week: number | null; lecture: string | null; position: number | null }
   const moduleConceptMap = new Map<string, { module_id: string; module_name: string; concepts: ExtractedConcept[] }>()
 
   // Per-module lecture→week lookup, lazily built once per module on first use.
@@ -127,6 +127,7 @@ export async function extractConcepts(
       source_excerpt: c.source_excerpt,
       week,
       lecture,
+      position: null as number | null,
     }))
 
     if (existing) {

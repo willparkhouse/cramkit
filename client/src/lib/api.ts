@@ -189,6 +189,54 @@ export async function adminUpdateModule(
   return module as Exam
 }
 
+export interface AdminQuestionFlag {
+  question_id: string
+  comment: string | null
+  created_at: string
+  updated_at: string
+  flagged_by: string | null
+  question_text: string
+  question_type: string | null
+  concept_id: string | null
+  concept_name: string
+  module_ids: string[]
+}
+
+export async function adminListQuestionFlags(): Promise<AdminQuestionFlag[]> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch('/api/admin/question-flags', {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  const { flags } = await res.json()
+  return flags as AdminQuestionFlag[]
+}
+
+export async function adminFlagQuestion(questionId: string, comment: string | null): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/question-flags/${questionId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ comment }),
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+}
+
+export async function adminUnflagQuestion(questionId: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+  const res = await fetch(`/api/admin/question-flags/${questionId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+}
+
 export async function adminDeleteModule(id: string, confirmSlug: string): Promise<void> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not authenticated')
@@ -379,6 +427,28 @@ export async function pipelineDiscardDraft(id: string): Promise<void> {
 export async function pipelineGetJob(id: string): Promise<PipelineJob> {
   const { job } = await authedGet<{ job: PipelineJob }>(`/api/admin/pipeline/jobs/${id}`)
   return job
+}
+
+// ============================================================================
+// Past paper analysis — admin only, nothing persisted
+// ============================================================================
+
+export interface PaperQuestion {
+  question: string
+  summary: string
+  weeks: number[]
+  concepts: string[]
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export async function analyzePaper(
+  moduleId: string,
+  examText: string,
+): Promise<{ questions: PaperQuestion[] }> {
+  return authedPost('/api/admin/analyze-paper', {
+    module_id: moduleId,
+    exam_text: examText,
+  })
 }
 
 export async function pipelineExtract(input: {

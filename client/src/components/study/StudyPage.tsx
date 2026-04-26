@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -18,6 +18,11 @@ import {
   type SourceChunk,
 } from '@/lib/api'
 import { renderWithCitations } from '@/lib/citations'
+import {
+  getCachedLesson,
+  putCachedLesson,
+  getCachedConceptIds,
+} from '@/lib/lessonCache'
 import { ConceptQuiz } from './ConceptQuiz'
 import {
   BookOpen,
@@ -34,8 +39,29 @@ import {
   FileText,
   Video,
   ChevronDown,
+  Download,
+  HardDrive,
 } from 'lucide-react'
-import type { Concept, Exam } from '@/types'
+import type { Concept, Exam, KnowledgeEntry, Question } from '@/types'
+
+/**
+ * "Perfect" = every question for this concept has been attempted AND its
+ * most recent attempt was correct. Shared by the lesson sidebar and the
+ * module picker so both use the same mastery rule.
+ */
+function isConceptPerfect(
+  conceptId: string,
+  knowledge: Record<string, KnowledgeEntry>,
+  questions: Question[]
+): boolean {
+  const k = knowledge[conceptId]
+  if (!k || k.history.length === 0) return false
+  const latest = new Map<string, boolean>()
+  for (const h of k.history) latest.set(h.question_id, h.correct)
+  const cqs = questions.filter((q) => q.concept_id === conceptId)
+  if (cqs.length === 0) return false
+  return cqs.every((q) => latest.get(q.id) === true)
+}
 
 /**
  * Study page — guided revision walkthrough.
@@ -73,21 +99,63 @@ export function StudyPage() {
   const [activeConceptId, setActiveConceptId] = useState<string | null>(null)
   const allQuestions = useAppStore((s) => s.questions)
 
-  // "Perfect" = every question for this concept has been attempted AND its
-  // most recent attempt was correct. Derived from the persisted knowledge
-  // history (which the inline quiz already updates via updateKnowledge), so
-  // the tick survives page reloads and DB sync without any extra state.
-  const isConceptPerfect = useMemo(() => {
-    return (conceptId: string): boolean => {
-      const k = knowledge[conceptId]
-      if (!k || k.history.length === 0) return false
-      const latest = new Map<string, boolean>()
-      for (const h of k.history) latest.set(h.question_id, h.correct)
-      const cqs = allQuestions.filter((q) => q.concept_id === conceptId)
-      if (cqs.length === 0) return false
-      return cqs.every((q) => latest.get(q.id) === true)
+  const isPerfect = useCallback(
+    (conceptId: string) => isConceptPerfect(conceptId, knowledge, allQuestions),
+    [knowledge, allQuestions]
+  )
+
+  // Track which concepts have locally cached walkthroughs (IndexedDB).
+  // Refreshed on mount + after pre-load completes.
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set())
+  const refreshCachedIds = useCallback(() => {
+    void getCachedConceptIds().then(setCachedIds)
+  }, [])
+  useEffect(() => { refreshCachedIds() }, [refreshCachedIds])
+
+  // Pre-load state for downloading an entire week's walkthroughs.
+  const [preloading, setPreloading] = useState(false)
+  const [preloadProgress, setPreloadProgress] = useState({ done: 0, total: 0 })
+
+  const preloadWeek = useCallback(async (conceptsToLoad: Concept[]) => {
+    if (preloading) return
+    // Filter to concepts not already cached locally.
+    const uncached = conceptsToLoad.filter((c) => !cachedIds.has(c.id))
+    if (uncached.length === 0) return
+    setPreloading(true)
+    setPreloadProgress({ done: 0, total: uncached.length })
+
+    for (let i = 0; i < uncached.length; i++) {
+      const concept = uncached[i]
+      try {
+        // Stream the lesson, collect text + chunks, write to IndexedDB.
+        let text = ''
+        let chunks: SourceChunk[] = []
+        await new Promise<void>((resolve, reject) => {
+          void streamLesson(concept.id, {
+            onChunks: (c) => { chunks = c },
+            onCached: () => {},
+            onDelta: (chunk) => { text += chunk },
+            onDone: () => {
+              void putCachedLesson({
+                conceptId: concept.id,
+                text,
+                chunks,
+                cachedAt: new Date().toISOString(),
+              }).then(resolve)
+            },
+            onError: (msg) => reject(new Error(msg)),
+            onMissingKey: () => reject(new Error('missing key')),
+          })
+        })
+      } catch {
+        // Individual failure is non-fatal — skip and continue.
+      }
+      setPreloadProgress({ done: i + 1, total: uncached.length })
     }
-  }, [knowledge, allQuestions])
+
+    setPreloading(false)
+    refreshCachedIds()
+  }, [preloading, cachedIds, refreshCachedIds])
 
   // Deep-link via /study?module=ID&concept=ID. Quiz pages link here so a
   // student can jump from a question they don't understand straight into
@@ -133,6 +201,11 @@ export function StudyPage() {
         const wa = a.week ?? 9999
         const wb = b.week ?? 9999
         if (wa !== wb) return wa - wb
+        // Within a week, sort by position (set by the extraction pipeline in
+        // lecture order). Null positions (legacy rows) sort last, then by name.
+        const pa = a.position ?? 9999
+        const pb = b.position ?? 9999
+        if (pa !== pb) return pa - pb
         return a.name.localeCompare(b.name)
       })
   }, [concepts, selectedExam])
@@ -184,6 +257,7 @@ export function StudyPage() {
                 exam={exam}
                 concepts={concepts.filter((c) => c.module_ids.includes(exam.id))}
                 knowledge={knowledge}
+                questions={allQuestions}
                 onPick={() => {
                   setSelectedExamId(exam.id)
                   setSelectedWeek(null)
@@ -282,9 +356,40 @@ export function StudyPage() {
       {/* Concept list (left) + lesson body (right). On mobile this stacks. */}
       <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
-            {selectedWeek !== null ? `Week ${selectedWeek}` : 'All concepts'} ·{' '}
-            {weekConcepts.length}
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {selectedWeek !== null ? `Week ${selectedWeek}` : 'All concepts'} ·{' '}
+              {weekConcepts.length}
+            </div>
+            {weekConcepts.length > 0 && (() => {
+              const uncachedCount = weekConcepts.filter((c) => !cachedIds.has(c.id)).length
+              const allCached = uncachedCount === 0
+              return allCached ? (
+                <span className="flex items-center gap-1 text-[10px] text-green-500" title="All walkthroughs saved for offline">
+                  <HardDrive className="h-3 w-3" /> Offline ready
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void preloadWeek(weekConcepts)}
+                  disabled={preloading}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  title="Download walkthroughs for offline reading"
+                >
+                  {preloading ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {preloadProgress.done}/{preloadProgress.total}
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3 w-3" />
+                      Save offline
+                    </>
+                  )}
+                </button>
+              )
+            })()}
           </div>
           {weekConcepts.length === 0 ? (
             <p className="text-xs text-muted-foreground italic">
@@ -295,11 +400,9 @@ export function StudyPage() {
               {weekConcepts.map((c) => {
                 const k = knowledge[c.id]
                 const score = k ? getEffectiveScore(k.score, k.last_tested) : 0
-                // Tick lights up if either signal trips: long-term effective
-                // score above mastery, OR every question's most recent attempt
-                // was correct (the "you just nailed all of them" check).
-                const mastered = score >= 0.8 || isConceptPerfect(c.id)
+                const mastered = score >= 0.8 || isPerfect(c.id)
                 const active = c.id === activeConceptId
+                const localCached = cachedIds.has(c.id)
                 return (
                   <button
                     key={c.id}
@@ -318,6 +421,9 @@ export function StudyPage() {
                       <BookOpen className="h-3 w-3 text-muted-foreground shrink-0" />
                     )}
                     <span className="flex-1 leading-snug">{c.name}</span>
+                    {localCached && (
+                      <span title="Saved offline"><HardDrive className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" /></span>
+                    )}
                   </button>
                 )
               })}
@@ -328,6 +434,7 @@ export function StudyPage() {
         <LessonPanel
           conceptId={activeConceptId}
           concept={weekConcepts.find((c) => c.id === activeConceptId) ?? null}
+          onLessonCached={refreshCachedIds}
         />
       </div>
     </div>
@@ -341,11 +448,13 @@ function ModuleStudyRow({
   exam,
   concepts,
   knowledge,
+  questions,
   onPick,
 }: {
   exam: Exam
   concepts: Concept[]
-  knowledge: Record<string, { score: number; last_tested: string | null }>
+  knowledge: Record<string, KnowledgeEntry>
+  questions: Question[]
   onPick: () => void
 }) {
   const colour = MODULE_COLOURS[exam.name] || '#888'
@@ -353,7 +462,8 @@ function ModuleStudyRow({
   let mastered = 0
   for (const c of concepts) {
     const k = knowledge[c.id]
-    if (k && getEffectiveScore(k.score, k.last_tested) >= 0.8) mastered++
+    const score = k ? getEffectiveScore(k.score, k.last_tested) : 0
+    if (score >= 0.8 || isConceptPerfect(c.id, knowledge, questions)) mastered++
   }
   const pct = total > 0 ? Math.round((mastered / total) * 100) : 0
 
@@ -392,9 +502,11 @@ type LessonState =
 function LessonPanel({
   conceptId,
   concept,
+  onLessonCached,
 }: {
   conceptId: string | null
   concept: Concept | null
+  onLessonCached?: () => void
 }) {
   const [state, setState] = useState<LessonState>({ phase: 'idle' })
   const [quizOpen, setQuizOpen] = useState(false)
@@ -406,22 +518,8 @@ function LessonPanel({
     setQuizOpen(false)
   }, [conceptId])
 
-  // Per-stream token. Cleanup nullifies it, so any in-flight stream from a
-  // previous mount (or StrictMode double-invoke in dev) stops applying its
-  // tokens to React state. Stable ids mean stream A and stream B can coexist
-  // briefly without colliding.
   const streamTokenRef = useRef(0)
-  // Guard against stale streams when the user clicks a different concept
-  // mid-fetch — only the most recent conceptId's tokens should land.
-  const activeConceptRef = useRef<string | null>(null)
 
-  // Whenever the conceptId changes, kick off a fresh fetch.
-  // IMPORTANT: only depend on conceptId, NOT the `concept` object — that
-  // gets re-created on every parent render via .find() in the parent, so
-  // depending on it would re-fire this effect on unrelated re-renders.
-  // Each invocation gets a unique stream token (incrementing ref) so a
-  // previous stream's tokens are dropped if a new mount has fired in
-  // between — including the StrictMode double-invoke in dev.
   useEffect(() => {
     if (!conceptId) {
       setState({ phase: 'idle' })
@@ -430,53 +528,68 @@ function LessonPanel({
     }
 
     const myToken = ++streamTokenRef.current
-    // eslint-disable-next-line no-console
-    console.log(`[lesson] start  token=${myToken} concept=${conceptId.slice(0, 8)}`)
-    setState({ phase: 'loading', conceptId })
-
-    let text = ''
-    let cached = false
-    let chunks: SourceChunk[] = []
     let cancelled = false
     const isStale = () => cancelled || streamTokenRef.current !== myToken
 
-    void streamLesson(conceptId, {
-      onChunks: (incoming) => {
-        if (isStale()) return
-        chunks = incoming
-      },
-      onCached: () => {
-        cached = true
-      },
-      onDelta: (chunk) => {
-        if (isStale()) return
-        text += chunk
-        setState({ phase: 'streaming', conceptId, text, cached, chunks })
-      },
-      onDone: () => {
-        if (isStale()) return
-        // eslint-disable-next-line no-console
-        console.log(`[lesson] done   token=${myToken} concept=${conceptId.slice(0, 8)} chars=${text.length}`)
-        setState({ phase: 'done', conceptId, text, cached, chunks })
-      },
-      onError: (message) => {
-        if (isStale()) return
-        // eslint-disable-next-line no-console
-        console.log(`[lesson] error  token=${myToken} concept=${conceptId.slice(0, 8)} msg=${message}`)
-        setState({ phase: 'error', conceptId, message })
-      },
-      onMissingKey: () => {
-        if (isStale()) return
-        setState({ phase: 'missing_key', conceptId })
-      },
+    setState({ phase: 'loading', conceptId })
+
+    // 1. Check IndexedDB for a locally cached walkthrough (offline support).
+    void getCachedLesson(conceptId).then((local) => {
+      if (isStale()) return
+
+      if (local && local.text) {
+        setState({
+          phase: 'done',
+          conceptId,
+          text: local.text,
+          cached: true,
+          chunks: local.chunks,
+        })
+        return
+      }
+
+      // 2. No local cache — stream from network.
+      let text = ''
+      let serverCached = false
+      let chunks: SourceChunk[] = []
+
+      void streamLesson(conceptId, {
+        onChunks: (incoming) => {
+          if (isStale()) return
+          chunks = incoming
+        },
+        onCached: () => { serverCached = true },
+        onDelta: (chunk) => {
+          if (isStale()) return
+          text += chunk
+          setState({ phase: 'streaming', conceptId, text, cached: serverCached, chunks })
+        },
+        onDone: () => {
+          if (isStale()) return
+          setState({ phase: 'done', conceptId, text, cached: serverCached, chunks })
+          // Write to IndexedDB so this concept is available offline.
+          if (text.trim()) {
+            void putCachedLesson({
+              conceptId,
+              text,
+              chunks,
+              cachedAt: new Date().toISOString(),
+            }).then(() => onLessonCached?.())
+          }
+        },
+        onError: (message) => {
+          if (isStale()) return
+          setState({ phase: 'error', conceptId, message })
+        },
+        onMissingKey: () => {
+          if (isStale()) return
+          setState({ phase: 'missing_key', conceptId })
+        },
+      })
     })
 
-    return () => {
-      cancelled = true
-      // eslint-disable-next-line no-console
-      console.log(`[lesson] cancel token=${myToken} concept=${conceptId.slice(0, 8)}`)
-    }
-  }, [conceptId])
+    return () => { cancelled = true }
+  }, [conceptId, onLessonCached])
 
   if (!conceptId || !concept) {
     return (

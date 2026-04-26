@@ -19,7 +19,7 @@ import { ModulesPage } from '@/components/modules/ModulesPage'
 import { LeaderboardPage } from '@/components/leaderboard/LeaderboardPage'
 import { PublishNotificationToast } from '@/components/notifications/PublishNotificationToast'
 import { LegalPage } from '@/components/legal/LegalPage'
-import { hydrateStore } from '@/store/hydrate'
+import { hydrateStore, hydrateQuestionFlags } from '@/store/hydrate'
 import { useSyncToSupabase } from '@/hooks/useSyncToSupabase'
 import { useActiveTime } from '@/hooks/useActiveTime'
 import { useAppStore } from '@/store/useAppStore'
@@ -45,6 +45,12 @@ function ProtectedApp() {
       setHydrated(false)
     }
   }, [user, openSetup, setHydrated])
+
+  // Admins additionally pull the flagged-question map so the flag UI can
+  // render its on/off state without a per-question round trip.
+  useEffect(() => {
+    if (user && isAdmin) hydrateQuestionFlags()
+  }, [user, isAdmin])
 
   return (
     <>

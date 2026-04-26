@@ -22,6 +22,7 @@ export interface Concept {
   source_excerpt: string
   week: number | null
   lecture: string | null
+  position: number | null
   created_at: string
 }
 

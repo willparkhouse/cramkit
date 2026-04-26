@@ -135,9 +135,11 @@ export async function promoteDraft(opts: PromoteOptions): Promise<PromoteResult>
   // ─── Build insert rows ───
   const toInsert: Array<Record<string, unknown>> = []
   let skipped = 0
+  let position = 0
   for (const c of payload.concepts as ExtractedConceptWithLocation[]) {
     if (mode === 'skip' && existingNames.has(normaliseName(c.name))) {
       skipped++
+      position++
       continue
     }
     toInsert.push({
@@ -151,7 +153,9 @@ export async function promoteDraft(opts: PromoteOptions): Promise<PromoteResult>
       week: c.week,
       lecture: c.lecture,
       source_chunk_ids: filterValidUuids(c.source_chunk_ids),
+      position: position,
     })
+    position++
   }
 
   await log(`Will insert ${toInsert.length} concept(s) (${skipped} skipped as duplicates)`)
