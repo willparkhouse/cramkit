@@ -10,18 +10,8 @@ Live at **[cramkit.app](https://cramkit.app)**.
 > subscription revenue is donated to the [Founders Pledge Climate Fund](https://founderspledge.com/funds/climate-change-fund)**.
 > The operator does not draw a salary. A yearly accounting of revenue, costs,
 > and donations is published on the website.
-
----
-
-## Donations
-
-Donations made under the pledge above:
-
-| Date | Amount | Fund | Receipt |
-|---|---:|---|---|
-| 5 Aug 2026 | £95.00 | [Founders Pledge Climate Fund](https://founderspledge.com/funds/climate-change-fund) | [receipt](docs/donations/founders-pledge-2026-08.png) |
-
-<img src="docs/donations/founders-pledge-2026-08.png" alt="Stripe receipt for a £95.00 donation to the Founders Pledge Climate Fund, dated 5 August 2026" width="440">
+>
+> <sub>Donated so far: £95.00 on 5 Aug 2026 — [receipt](docs/donations/founders-pledge-2026-08.png).</sub>
 
 ---
 
