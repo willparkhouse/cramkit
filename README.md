@@ -167,3 +167,21 @@ The Caddyfile (in a separate `vps-caddy-config` repo) routes `cramkit.app` and `
 - **Open signups.** We tried gating to `bham.ac.uk` but the university's mail server filters our login emails, so the practical move was to drop the gate. Anyone can sign up; the modules and concepts assume a Birmingham CS context but nothing breaks for non-students.
 - **Dark mode by default.** Set inline in `index.html` before React mounts so there's no flash of light mode.
 - **DM Sans + Dosis** as the type pair, both self-hosted via Fontsource. No third-party font requests.
+
+---
+
+## Licence
+
+Copyright © 2026 William Parkhouse.
+
+Licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+
+You may run, modify and redistribute cramkit, including commercially. The one
+condition that matters here: because cramkit is a network service, AGPL section
+13 requires that anyone running a **modified** version accessible over a network
+must offer its users the corresponding source. Practically, if you fork this and
+host it, publish your fork.
+
+> **Note on course content.** The licence covers the *code*. Lecture material
+> ingested into a deployment — transcripts, slides and anything derived from them
+> — is owned by its authors and is not licensed by this file.
